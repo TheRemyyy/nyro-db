@@ -1,0 +1,69 @@
+[server]
+host = "127.0.0.1"
+port = 8081
+graceful_shutdown_timeout = 5
+
+[security]
+enable_auth = true
+api_key = "test_production_key"
+
+[storage]
+data_dir = "./data"
+buffer_size = 8388608
+enable_mmap = true
+sync_interval = 1000
+
+[performance]
+batch_size = 10000
+batch_timeout = 20
+max_concurrent_ops = 100000
+
+[logging]
+level = "info"
+enable_colors = true
+log_requests = false
+
+[metrics]
+enable = true
+report_interval = 30
+max_samples = 10000
+
+[[models.product.fields]]
+name = "id"
+type = "u64"
+required = true
+
+[[models.product.fields]]
+name = "name"
+type = "string"
+required = true
+
+[[models.product.fields]]
+name = "price"
+type = "u32"
+required = true
+
+[[models.product.fields]]
+name = "category_id"
+type = "u64"
+required = true
+
+[[models.user.fields]]
+name = "id"
+type = "u64"
+required = true
+
+[[models.user.fields]]
+name = "email"
+type = "string"
+required = true
+
+[[models.user.fields]]
+name = "hash_password"
+type = "string"
+required = true
+
+[[models.user.fields]]
+name = "created_at"
+type = "u64"
+required = true
