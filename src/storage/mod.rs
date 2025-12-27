@@ -158,11 +158,8 @@ impl LogStorage {
                         } else {
                             value.to_string()
                         };
-                        let field_idx = self
-                            .secondary_indices
-                            .entry(field.clone())
-                            .or_insert_with(DashMap::new);
-                        field_idx.entry(value_str).or_insert_with(Vec::new).push(id);
+                        let field_idx = self.secondary_indices.entry(field.clone()).or_default();
+                        field_idx.entry(value_str).or_default().push(id);
                     }
                 }
             }
@@ -260,11 +257,9 @@ impl LogStorage {
                                     } else {
                                         value.to_string()
                                     };
-                                    let field_idx = self
-                                        .secondary_indices
-                                        .entry(field.clone())
-                                        .or_insert_with(DashMap::new);
-                                    field_idx.entry(value_str).or_insert_with(Vec::new).push(id);
+                                    let field_idx =
+                                        self.secondary_indices.entry(field.clone()).or_default();
+                                    field_idx.entry(value_str).or_default().push(id);
                                 }
                             }
                         }

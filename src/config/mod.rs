@@ -248,6 +248,7 @@ impl NyroConfig {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn get_model_schema(&self, model_name: &str) -> Option<&ModelSchema> {
         self.models.get(model_name)
     }
