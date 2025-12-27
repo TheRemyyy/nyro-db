@@ -22,11 +22,11 @@ NyroDB is a next-generation database engine built from the ground up in Rust. It
 
 ### Key Features
 
-- **⚡ Extreme Throughput** — Capable of exceeding **1,000,000 operations per second** with sub-microsecond internal latency.
-- **🧠 Universal Querying** — O(1) secondary indexing on any field. Query by email, status, or custom metadata instantly.
+- **⚡ Extreme Throughput** — Capable of exceeding **1,000,000 operations per second** with sub-microsecond latency.
+- **🧠 Universal Querying** — O(1) secondary indexing on any field. Query by custom metadata instantly.
 - **🌐 Real-Time Native** — Built-in WebSocket server for instant data streaming and pub/sub notifications.
 - **🛡️ Secure by Design** — Native API Key authentication and schema validation for production-grade safety.
-- **🚀 Zero-Copy Storage** — Optimized disk persistence using memory-mapped files and ultra-fast binary serialization.
+- **🚀 Zero-Copy Storage** — Optimized disk persistence using memory-mapped files and ultra-fast serialization.
 - **📊 Real-Time Metrics** — Detailed performance monitoring including throughput windows and p99 latency stats.
 
 ## <a id="installation"></a>📦 Installation
