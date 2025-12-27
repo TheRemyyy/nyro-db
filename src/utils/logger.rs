@@ -1,5 +1,5 @@
-use chrono::Timelike;
 use crate::config::LoggingConfig;
+use chrono::Timelike;
 
 pub struct Logger;
 

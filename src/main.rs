@@ -35,7 +35,8 @@ async fn main() -> Result<()> {
         let db_clone = db.clone();
         let log_config = config.logging.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(config.metrics.report_interval));
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(config.metrics.report_interval));
             loop {
                 interval.tick().await;
                 let metrics = db_clone.get_metrics();
@@ -50,23 +51,40 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         match signal::ctrl_c().await {
             Ok(()) => {
-                Logger::shutdown_with_config(&db_shutdown_clone.get_config().logging, "Received Ctrl+C signal");
+                Logger::shutdown_with_config(
+                    &db_shutdown_clone.get_config().logging,
+                    "Received Ctrl+C signal",
+                );
                 if let Err(e) = db_shutdown.shutdown().await {
-                    Logger::error_with_config(&db_shutdown_clone.get_config().logging, &format!("Shutdown error: {}", e));
+                    Logger::error_with_config(
+                        &db_shutdown_clone.get_config().logging,
+                        &format!("Shutdown error: {}", e),
+                    );
                 }
                 std::process::exit(0);
             }
             Err(err) => {
-                Logger::error_with_config(&db_shutdown_clone.get_config().logging, &format!("Failed to listen for shutdown signal: {}", err));
+                Logger::error_with_config(
+                    &db_shutdown_clone.get_config().logging,
+                    &format!("Failed to listen for shutdown signal: {}", err),
+                );
             }
         }
     });
 
     let host_str = &config.server.host;
     let port = config.server.port;
-    let host_ip: [u8; 4] = host_str.split('.').map(|s| s.parse::<u8>()).collect::<Result<Vec<u8>, _>>().map(|v| [v[0], v[1], v[2], v[3]]).unwrap_or([127, 0, 0, 1]);
+    let host_ip: [u8; 4] = host_str
+        .split('.')
+        .map(|s| s.parse::<u8>())
+        .collect::<Result<Vec<u8>, _>>()
+        .map(|v| [v[0], v[1], v[2], v[3]])
+        .unwrap_or([127, 0, 0, 1]);
 
-    Logger::info_with_config(&config.logging, &format!("Server starting on http://{}:{}", host_str, port));
+    Logger::info_with_config(
+        &config.logging,
+        &format!("Server starting on http://{}:{}", host_str, port),
+    );
     warp::serve(routes).run((host_ip, port)).await;
     Ok(())
 }
