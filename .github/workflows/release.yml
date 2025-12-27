@@ -65,6 +65,7 @@ jobs:
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: ${{ matrix.asset_name }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
@@ -87,10 +88,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            artifacts/nyrodb-windows-x64/NyroDB.exe
-            artifacts/nyrodb-linux-x64/NyroDB
-            artifacts/nyrodb-macos-x64/NyroDB
+          files: artifacts/**/*
           body: |
             ## NyroDB - Universal Real-Time Database
             
