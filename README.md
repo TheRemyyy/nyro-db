@@ -10,7 +10,7 @@
 
 *A hyper-performant, zero-copy, real-time database engine designed for extreme throughput and universal versatility.*
 
-[Features](#features) • [Installation](#installation) • [API Guide](#api-guide) • [Configuration](#configuration)
+[Features](#features) • [Installation](#installation) • [Documentation](#documentation) • [API Guide](#api-guide) • [Configuration](#configuration)
 
 </div>
 
