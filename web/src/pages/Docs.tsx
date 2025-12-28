@@ -70,9 +70,9 @@ export default function Docs() {
     }, [content]);
 
     return (
-        <div className="flex flex-col md:flex-row min-h-screen bg-background text-zinc-300">
+        <div className="flex flex-col md:flex-row min-h-screen bg-background text-zinc-300 pt-16">
             {/* Mobile Header */}
-            <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-50">
+            <div className="md:hidden flex items-center justify-between p-4 border-b border-border bg-background/80 backdrop-blur sticky top-16 z-30">
                 <span className="font-semibold text-lg text-white">Documentation</span>
                 <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2 text-zinc-400 hover:text-white">
                     {mobileMenuOpen ? <X /> : <Menu />}
@@ -80,12 +80,12 @@ export default function Docs() {
             </div>
 
             {/* Sidebar */}
-            <div className={`fixed inset-0 z-40 md:static md:z-auto bg-background md:bg-transparent transform transition-transform duration-300 md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className={`fixed inset-0 top-16 z-40 md:static md:z-auto bg-background md:bg-transparent transform transition-transform duration-300 md:translate-x-0 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <Sidebar onClose={() => setMobileMenuOpen(false)} />
             </div>
 
             {/* Main Content */}
-            <main className="flex-1 min-w-0 py-8 pt-24 px-4 md:px-12 lg:px-16 max-w-5xl mx-auto w-full">
+            <main className="flex-1 min-w-0 py-8 px-4 md:px-12 lg:px-16 max-w-5xl mx-auto w-full">
                 {isLoading ? (
                     <div className="animate-pulse space-y-4 max-w-2xl mt-8">
                         <div className="h-8 bg-surface rounded w-3/4"></div>

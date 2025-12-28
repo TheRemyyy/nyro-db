@@ -23,7 +23,7 @@ export default function Home() {
                             v1.0.0 Now Available
                         </div>
 
-                        <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-200 to-zinc-500">
+                        <h1 className="text-4xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-200 to-zinc-500">
                             The Fastest Real-Time DB <br />
                             <span className="text-white">in the Known Universe.</span>
                         </h1>
