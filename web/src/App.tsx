@@ -7,6 +7,7 @@ import Footer from './components/Footer';
 import ScrollToTop from './components/ScrollToTop';
 
 const Docs = lazy(() => import('./pages/Docs'));
+const Changelog = lazy(() => import('./pages/Changelog'));
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/docs/*" element={<Docs />} />
+            <Route path="/changelog" element={<Changelog />} />
           </Routes>
         </Suspense>
         <Footer />

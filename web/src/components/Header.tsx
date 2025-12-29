@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Menu, X, Github } from 'lucide-react';
 
@@ -8,6 +8,7 @@ export default function Header() {
     const LINKS = [
         { title: 'Home', path: '/' },
         { title: 'Documentation', path: '/docs' },
+        { title: 'Changelog', path: '/changelog' },
     ];
 
     return (
@@ -81,3 +82,4 @@ export default function Header() {
         </header>
     );
 }
+

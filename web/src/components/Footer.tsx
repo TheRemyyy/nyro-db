@@ -1,4 +1,4 @@
-import { Github, Twitter, Heart, MessageCircle, BookOpen, Server } from 'lucide-react';
+﻿import { Github, Twitter, Heart, MessageCircle, BookOpen, Server } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 export default function Footer() {
@@ -60,3 +60,4 @@ export default function Footer() {
         </footer>
     );
 }
+
