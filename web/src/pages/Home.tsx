@@ -1,6 +1,6 @@
 ﻿import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Zap, Database, Globe, ArrowRight, Server, ShieldCheck, Cpu, Layers, Workflow } from 'lucide-react';
+import { Zap, Database, Globe, ArrowRight, ShieldCheck, Cpu, Layers } from 'lucide-react';
 
 export default function Home() {
     return (
@@ -159,11 +159,11 @@ export default function Home() {
                                 <span className="text-purple-400">POST</span> /insert/metrics <span className="text-zinc-600">HTTP/1.1</span><br />
                                 <span className="text-blue-400">Content-Type:</span> application/json<br />
                                 <br />
-                                <span className="text-zinc-300">{{}</span><br />
+                                <span className="text-zinc-300">{`{`}</span><br />
                                 &nbsp;&nbsp;<span className="text-green-400">"service"</span>: <span className="text-yellow-300">"auth-node-1"</span>,<br />
                                 &nbsp;&nbsp;<span className="text-green-400">"tps"</span>: <span className="text-orange-400">1250000</span>,<br />
                                 &nbsp;&nbsp;<span className="text-green-400">"status"</span>: <span className="text-yellow-300">"healthy"</span><br />
-                                <span className="text-zinc-300">{}}</span>
+                                <span className="text-zinc-300">{`}`}</span>
                             </div>
                         </div>
                     </div>
@@ -195,3 +195,5 @@ function CheckItem({ text }: { text: string }) {
         </div>
     );
 }
+
+
