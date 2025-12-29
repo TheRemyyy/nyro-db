@@ -5,8 +5,8 @@ import { Zap, Database, Globe, ArrowRight, Cpu, Layers } from 'lucide-react';
 export default function Home() {
     return (
         <div className="min-h-screen bg-background text-zinc-100 overflow-hidden font-sans">
-            {/* Hero Section - Increased Padding Top */}
-            <section className="relative pt-48 pb-20 px-4 md:pt-64">
+            {/* Hero Section - Balanced Padding Top */}
+            <section className="relative pt-40 pb-20 px-4 md:pt-52">
                 <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-orange-900/20 via-background to-background pointer-events-none"></div>
 
                 <div className="max-w-5xl mx-auto text-center relative z-10">
