@@ -41,6 +41,8 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
-    "vite-plugin-compression": "^0.5.1"
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-css-injected-by-js": "^3.5.2",
+    "vite-plugin-webfont-dl": "^3.11.1"
   }
 }
