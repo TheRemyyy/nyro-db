@@ -4,8 +4,8 @@
 
 **The Fastest Real-Time Database in the Known Universe**
 
+[![Website](https://img.shields.io/badge/Website-veloxframework.vercel.app-FFA500?style=flat-square&logo=vercel)](https://veloxframework.vercel.app)
 [![Rust Version](https://img.shields.io/badge/Rust-1.75+-brown?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Ops/Sec](https://img.shields.io/badge/Performance-1M%20ops%2Fsec-blueviolet?style=flat-square)](https://github.com/TheRemyyy/nyro-db)
 
 *A hyper-performant, zero-copy, real-time database engine designed for extreme throughput and universal versatility.*
