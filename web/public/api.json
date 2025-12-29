@@ -1,0 +1,52 @@
+{
+  "name": "NyroDB API",
+  "version": "1.0.0",
+  "base_url": "http://127.0.0.1:8081",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/insert/:model",
+      "description": "Insert a new JSON record into a model."
+    },
+    {
+      "method": "GET",
+      "path": "/get/:model/:id",
+      "description": "Retrieve a record by its primary ID."
+    },
+    {
+      "method": "GET",
+      "path": "/query/:model",
+      "description": "List all records in a model."
+    },
+    {
+      "method": "GET",
+      "path": "/query/:model/:field/:value",
+      "description": "Search for records by a specific field and value (Secondary Index)."
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Retrieve real-time performance metrics and statistics."
+    },
+    {
+      "method": "POST",
+      "path": "/benchmark/:model/:count",
+      "description": "Run a performance benchmark for a specific model."
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "description": "Retrieve the current server configuration (Redacted)."
+    },
+    {
+      "method": "GET",
+      "path": "/models",
+      "description": "List all active data models."
+    },
+    {
+      "method": "WS",
+      "path": "/ws",
+      "description": "WebSocket endpoint for real-time pub/sub updates."
+    }
+  ]
+}
