@@ -1,12 +1,12 @@
-﻿import { NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Zap, Database, Globe, ArrowRight, ShieldCheck, Cpu, Layers } from 'lucide-react';
+import { Zap, Database, Globe, ArrowRight, Cpu, Layers } from 'lucide-react';
 
 export default function Home() {
     return (
         <div className="min-h-screen bg-background text-zinc-100 overflow-hidden font-sans">
-            {/* Hero Section */}
-            <section className="relative pt-32 pb-20 px-4">
+            {/* Hero Section - Increased Padding Top */}
+            <section className="relative pt-48 pb-20 px-4 md:pt-64">
                 <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-orange-900/20 via-background to-background pointer-events-none"></div>
 
                 <div className="max-w-5xl mx-auto text-center relative z-10">
@@ -114,17 +114,17 @@ export default function Home() {
                         desc="NyroDB automatically indexes your JSON fields without schema definitions or heavy migration scripts."
                     />
                     <FeatureCard
-                        icon={ShieldCheck}
+                        icon={Cpu}
                         title="ACID Persistence"
                         desc="Atomic, Consistent, Isolated, and Durable. Your data is safe even during power failure via WAL recovery."
                     />
                     <FeatureCard
-                        icon={Cpu}
+                        icon={Layers}
                         title="Rust & Zero-Copy"
                         desc="Data is accessed directly via memory pointers. No serialization overhead, no GC, no compromises."
                     />
                     <FeatureCard
-                        icon={Layers}
+                        icon={Zap}
                         title="Multi-Tenant Auth"
                         desc="Strict API-key validation and namespace isolation for secure multi-application environments."
                     />
@@ -195,5 +195,3 @@ function CheckItem({ text }: { text: string }) {
         </div>
     );
 }
-
-
