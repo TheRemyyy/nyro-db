@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Menu, X, Github } from 'lucide-react';
 
@@ -15,7 +15,7 @@ export default function Header() {
         <header className="h-16 border-b border-border bg-background/80 backdrop-blur fixed top-0 left-0 right-0 z-50">
             <div className="max-w-7xl mx-auto px-4 h-full flex items-center justify-between">
                 {/* Logo - Text Only */}
-                <NavLink to="/" className="font-bold text-xl text-white tracking-tight hover:text-primary transition-colors">
+                <NavLink to="/" className="font-bold text-xl text-white tracking-tight hover:text-orange-500 transition-colors">
                     NyroDB
                 </NavLink>
 
@@ -25,7 +25,7 @@ export default function Header() {
                         <NavLink
                             key={link.path}
                             to={link.path}
-                            className={({ isActive }) => `text-sm font-medium transition-colors ${isActive ? 'text-primary' : 'text-zinc-400 hover:text-white'}`}
+                            className={({ isActive }) => `text-sm font-medium transition-colors ${isActive ? 'text-orange-500' : 'text-zinc-400 hover:text-orange-500'}`}
                         >
                             {link.title}
                         </NavLink>
@@ -40,7 +40,7 @@ export default function Header() {
                             href="https://github.com/TheRemyyy/nyro-db"
                             target="_blank"
                             rel="noreferrer"
-                            className="text-zinc-400 hover:text-white transition-colors flex items-center gap-2"
+                            className="text-zinc-400 hover:text-orange-500 transition-colors flex items-center gap-2"
                             title="View on GitHub"
                         >
                             <Github size={20} />
@@ -65,7 +65,7 @@ export default function Header() {
                             key={link.path}
                             to={link.path}
                             onClick={() => setMobileMenuOpen(false)}
-                            className={({ isActive }) => `block text-base font-medium ${isActive ? 'text-primary' : 'text-zinc-400 hover:text-white'}`}
+                            className={({ isActive }) => `block text-base font-medium ${isActive ? 'text-orange-500' : 'text-zinc-400 hover:text-orange-500'}`}
                         >
                             {link.title}
                         </NavLink>
@@ -73,7 +73,7 @@ export default function Header() {
                     <hr className="border-white/10" />
                     <a
                         href="https://github.com/TheRemyyy/nyro-db"
-                        className="block text-base font-medium text-zinc-400 hover:text-white flex items-center gap-2"
+                        className="block text-base font-medium text-zinc-400 hover:text-orange-500 flex items-center gap-2"
                     >
                         <Github size={16} /> GitHub
                     </a>

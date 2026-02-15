@@ -1,4 +1,4 @@
-﻿import { Github, Twitter, Heart, MessageCircle, BookOpen, Server } from 'lucide-react';
+import { Github, Twitter, Heart, MessageCircle, BookOpen, Server } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 export default function Footer() {
@@ -20,10 +20,10 @@ export default function Footer() {
                 <div className="flex flex-col gap-4">
                     <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Resources</h3>
                     <div className="flex flex-col gap-3">
-                        <NavLink to="/docs" className="text-zinc-400 hover:text-primary transition-colors text-sm flex items-center gap-2">
+                        <NavLink to="/docs" className="text-zinc-400 hover:text-orange-500 transition-colors text-sm flex items-center gap-2">
                             <BookOpen size={16} /> Documentation
                         </NavLink>
-                        <NavLink to="/docs/getting_started/installation" className="text-zinc-400 hover:text-primary transition-colors text-sm flex items-center gap-2">
+                        <NavLink to="/docs/getting_started/installation" className="text-zinc-400 hover:text-orange-500 transition-colors text-sm flex items-center gap-2">
                             <Server size={16} /> Installation
                         </NavLink>
                     </div>
@@ -33,7 +33,7 @@ export default function Footer() {
                 <div className="flex flex-col gap-4">
                     <h3 className="text-sm font-semibold text-white uppercase tracking-wider">Community</h3>
                     <div className="flex flex-col gap-3">
-                        <a href="https://github.com/TheRemyyy/nyro-db" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-primary transition-colors text-sm flex items-center gap-2">
+                        <a href="https://github.com/TheRemyyy/nyro-db" target="_blank" rel="noreferrer" className="text-zinc-400 hover:text-orange-500 transition-colors text-sm flex items-center gap-2">
                             <Github size={16} /> GitHub
                         </a>
                         <span className="text-zinc-600 text-sm flex items-center gap-2 cursor-not-allowed">

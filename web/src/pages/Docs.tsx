@@ -94,7 +94,7 @@ export default function Docs() {
                         <div className="h-32 bg-surface rounded w-full mt-8"></div>
                     </div>
                 ) : (
-                    <div className="prose prose-invert prose-zinc max-w-none prose-headings:text-white prose-a:text-primary prose-code:bg-surface prose-code:text-primary prose-code:px-1 prose-code:rounded prose-pre:bg-surface prose-pre:border prose-pre:border-border">
+                    <div className="prose prose-invert prose-zinc max-w-none prose-headings:text-white prose-a:text-orange-500 prose-code:bg-surface prose-code:text-orange-400 prose-code:px-1 prose-code:rounded prose-pre:bg-surface prose-pre:border prose-pre:border-border">
                         <div dangerouslySetInnerHTML={{ __html: content }} />
                     </div>
                 )}
@@ -104,14 +104,14 @@ export default function Docs() {
                     {prevPage ? (
                         <button
                             onClick={() => navigate(prevPage.path)}
-                            className="flex items-center gap-2 group text-sm text-zinc-400 hover:text-primary transition-colors text-left"
+                            className="flex items-center gap-2 group text-sm text-zinc-400 hover:text-orange-500 transition-colors text-left"
                         >
-                            <div className="p-2 rounded-full bg-surface border border-border group-hover:border-primary/50 transition-colors">
+                            <div className="p-2 rounded-full bg-surface border border-border group-hover:border-orange-500/50 transition-colors">
                                 <ChevronLeft size={16} />
                             </div>
                             <div>
                                 <div className="text-xs text-zinc-500 mb-0.5">Previous</div>
-                                <div className="font-medium text-white group-hover:text-primary">{prevPage.title}</div>
+                                <div className="font-medium text-white group-hover:text-orange-500">{prevPage.title}</div>
                             </div>
                         </button>
                     ) : <div></div>}
@@ -119,14 +119,14 @@ export default function Docs() {
                     {nextPage && (
                         <button
                             onClick={() => navigate(nextPage.path)}
-                            className="flex items-center gap-2 group text-sm text-zinc-400 hover:text-primary transition-colors text-right flex-row-reverse"
+                            className="flex items-center gap-2 group text-sm text-zinc-400 hover:text-orange-500 transition-colors text-right flex-row-reverse"
                         >
-                            <div className="p-2 rounded-full bg-surface border border-border group-hover:border-primary/50 transition-colors">
+                            <div className="p-2 rounded-full bg-surface border border-border group-hover:border-orange-500/50 transition-colors">
                                 <ChevronRight size={16} />
                             </div>
                             <div>
                                 <div className="text-xs text-zinc-500 mb-0.5">Next</div>
-                                <div className="font-medium text-white group-hover:text-primary">{nextPage.title}</div>
+                                <div className="font-medium text-white group-hover:text-orange-500">{nextPage.title}</div>
                             </div>
                         </button>
                     )}

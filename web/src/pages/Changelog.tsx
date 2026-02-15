@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { marked } from 'marked';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
@@ -30,6 +30,7 @@ export default function Changelog() {
             <div className="mb-16 text-center">
                 <h1 className="text-5xl font-black text-white mb-6 tracking-tight">Changelog</h1>
                 <p className="text-lg text-zinc-400 font-medium">Tracking the evolution of NyroDB.</p>
+                <div className="w-16 h-1 bg-orange-500 rounded-full mx-auto mt-6" />
             </div>
 
             <motion.div
@@ -38,7 +39,7 @@ export default function Changelog() {
                 transition={{ duration: 0.3 }}
                 className="bg-zinc-900/30 border border-zinc-800/40 rounded-2xl p-8 md:p-12 shadow-xl"
             >
-                <div className="prose prose-invert prose-zinc max-w-none">
+                <div className="prose prose-invert prose-zinc max-w-none prose-a:text-orange-500 prose-a:no-underline">
                     <div dangerouslySetInnerHTML={{ __html: html }} />
                 </div>
             </motion.div>

@@ -52,11 +52,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                                             to={item.path}
                                             onClick={onClose}
                                             className={`group flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-200 outline-none focus:outline-none focus:ring-0 ${isActive
-                                                ? 'bg-surface text-primary border border-border shadow-sm'
+                                                ? 'bg-surface text-orange-500 border border-border shadow-sm'
                                                 : 'text-zinc-400 hover:text-zinc-100 hover:bg-surface/50 border border-transparent'
                                                 }`}
                                         >
-                                            <Icon size={16} className={`transition-colors ${isActive ? 'text-primary' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
+                                            <Icon size={16} className={`transition-colors ${isActive ? 'text-orange-500' : 'text-zinc-500 group-hover:text-zinc-300'}`} />
                                             {item.title}
                                             {isActive && (
                                                 <motion.div
@@ -65,7 +65,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                                                     initial={{ opacity: 0, x: -5 }}
                                                     animate={{ opacity: 1, x: 0 }}
                                                 >
-                                                    <ChevronRight size={14} className="text-primary" />
+                                                    <ChevronRight size={14} className="text-orange-500" />
                                                 </motion.div>
                                             )}
                                         </NavLink>

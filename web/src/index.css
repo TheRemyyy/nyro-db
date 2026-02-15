@@ -23,6 +23,22 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
+}
+
 /* Hero: single gradient strip from top, no blobs */
 .hero-bg {
   background: linear-gradient(to bottom, rgba(234, 88, 12, 0.07) 0%, transparent 45%);
@@ -75,9 +91,12 @@ html {
 }
 
 .prose a {
-  color: var(--color-primary);
+  color: #ea580c !important;
   text-decoration: underline;
   text-underline-offset: 4px;
+}
+.prose a:hover {
+  color: #f97316 !important;
 }
 
 .prose ul,
@@ -100,4 +119,26 @@ html {
 pre code.hljs {
   padding: 1.5rem !important;
   font-family: monospace;
+}
+
+/* Override hljs blue -> orange to match NyroDB theme */
+.hljs-attr,
+.hljs-attribute,
+.hljs-literal,
+.hljs-meta,
+.hljs-number,
+.hljs-operator,
+.hljs-variable,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-selector-id {
+  color: #f97316 !important;
+}
+.hljs-regexp,
+.hljs-string,
+.hljs-meta .hljs-string {
+  color: #fb923c !important;
+}
+.hljs-section {
+  color: #ea580c !important;
 }
