@@ -51,42 +51,33 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* About / Vision Section */}
-            <section className="py-24 px-4 bg-zinc-950/50 border-y border-white/5">
+            {/* Cache-aside: before vs after */}
+            <section className="py-20 md:py-28 px-4 border-y border-white/5">
                 <div className="max-w-5xl mx-auto">
-                    <div className="grid md:grid-cols-2 gap-16 items-center">
-                        <div>
-                            <h2 className="text-3xl font-bold mb-6 text-white tracking-tight">Killing the Cache-Aside Complexity.</h2>
-                            <div className="space-y-4 text-zinc-400 leading-relaxed text-lg">
-                                <p>
-                                    Modern infrastructure is broken. We store data in "slow" databases and then build massive, complex sync layers to keep "fast" caches (Redis/Memcached) updated.
-                                </p>
-                                <p>
-                                    <span className="text-orange-400 font-medium italic">NyroDB was born to kill this pattern.</span> By combining memory-mapped files with zero-copy serialization, we've created a system that is as fast as your RAM but as reliable as your NVMe.
-                                </p>
-                                <p>
-                                    Whether you're building high-frequency trading platforms or massive real-time games, NyroDB gives you a single source of truth that never lags.
-                                </p>
-                            </div>
+                    <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight mb-12 md:mb-16 text-center">
+                        Killing the cache-aside complexity
+                    </h2>
+
+                    <div className="grid md:grid-cols-2 gap-8 md:gap-12 mb-12">
+                        <div className="p-6 md:p-8 rounded-lg border border-zinc-800 bg-zinc-900/30">
+                            <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">Without NyroDB</p>
+                            <p className="text-zinc-400 leading-relaxed">
+                                Database for durability, Redis or Memcached for speed, plus pipelines, invalidation, and hope that both stay in sync. Two systems, more moving parts.
+                            </p>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-6 rounded-xl border border-zinc-800 bg-black flex flex-col items-center text-center">
-                                <span className="text-3xl font-bold text-white mb-1">1M+</span>
-                                <span className="text-xs text-zinc-500 uppercase tracking-widest">Ops/Sec</span>
-                            </div>
-                            <div className="p-6 rounded-xl border border-zinc-800 bg-black flex flex-col items-center text-center">
-                                <span className="text-3xl font-bold text-white mb-1">&lt;1μs</span>
-                                <span className="text-xs text-zinc-500 uppercase tracking-widest">Latency</span>
-                            </div>
-                            <div className="p-6 rounded-xl border border-zinc-800 bg-black flex flex-col items-center text-center">
-                                <span className="text-3xl font-bold text-white mb-1">0</span>
-                                <span className="text-xs text-zinc-500 uppercase tracking-widest">Copy Overh.</span>
-                            </div>
-                            <div className="p-6 rounded-xl border border-zinc-800 bg-black flex flex-col items-center text-center">
-                                <span className="text-3xl font-bold text-white mb-1">∞</span>
-                                <span className="text-xs text-zinc-500 uppercase tracking-widest">Scalability</span>
-                            </div>
+                        <div className="p-6 md:p-8 rounded-lg border border-orange-500/20 bg-orange-500/5">
+                            <p className="text-xs font-semibold text-orange-400 uppercase tracking-wider mb-4">With NyroDB</p>
+                            <p className="text-zinc-300 leading-relaxed">
+                                One engine: memory-mapped, zero-copy, fast as RAM and durable as disk. Single source of truth: no cache layer, no sync. Built for scale.
+                            </p>
                         </div>
+                    </div>
+
+                    <div className="flex flex-wrap justify-center gap-x-8 gap-y-2 text-sm text-zinc-500">
+                        <span><strong className="text-white font-semibold">1M+</strong> ops/sec</span>
+                        <span><strong className="text-white font-semibold">&lt;1μs</strong> latency</span>
+                        <span><strong className="text-white font-semibold">0</strong> copy overhead</span>
+                        <span><strong className="text-white font-semibold">∞</strong> scale</span>
                     </div>
                 </div>
             </section>
@@ -96,7 +87,7 @@ export default function Home() {
                 <div className="max-w-3xl mx-auto text-center">
                     <h2 className="text-3xl font-bold mb-3 text-white tracking-tight">Core Architecture</h2>
                     <p className="text-zinc-400 leading-relaxed mb-8">
-                        High throughput, ACID persistence, O(1) indexing, real-time WebSockets, zero-copy Rust, and multi-tenant auth—in one engine.
+                        High throughput, ACID persistence, O(1) indexing, real-time WebSockets, zero-copy Rust, and multi-tenant auth, all in one engine.
                     </p>
                     <div className="flex flex-wrap justify-center gap-2">
                         {['Throughput', 'ACID', 'O(1) indexing', 'WebSocket', 'Zero-copy', 'Multi-tenant'].map((label) => (
