@@ -5,47 +5,52 @@ import { ArrowRight } from 'lucide-react';
 export default function Home() {
     return (
         <div className="min-h-screen bg-background text-zinc-100 overflow-hidden font-sans">
-            {/* Hero Section - Balanced Padding Top */}
-            <section className="relative pt-40 pb-20 px-4 md:pt-52">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-orange-900/20 via-background to-background pointer-events-none"></div>
+            {/* Hero Section - Left / Right */}
+            <section className="hero-bg relative min-h-screen flex items-center px-4 py-16 overflow-hidden">
 
-                <div className="max-w-5xl mx-auto text-center relative z-10">
+                <div className="relative z-10 w-full max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 items-center">
                     <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5 }}
+                        initial={{ opacity: 0, x: -16 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.4 }}
                     >
-                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-medium mb-6">
-                            <span className="relative flex h-2 w-2">
-                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-                            </span>
-                            v1.0.0 Stable Release
-                        </div>
-
-                        <h1 className="text-4xl md:text-7xl font-bold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-br from-white via-zinc-200 to-zinc-500 leading-tight">
-                            The Unified Storage Engine <br />
-                            <span className="text-white">for Hyper-Scale Apps.</span>
+                        <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-5 text-white leading-tight">
+                            The unified storage engine for hyper-scale apps
                         </h1>
-
-                        <p className="text-xl text-zinc-400 max-w-3xl mx-auto mb-10 leading-relaxed">
-                            Stop splitting your data between slow databases and fragile caches. 
-                            <span className="text-zinc-100 font-semibold block mt-2">NyroDB is a zero-copy, memory-mapped engine that delivers 1M+ ops/sec with persistent reliability.</span>
+                        <p className="text-zinc-400 max-w-lg mb-3 leading-relaxed">
+                            Zero-copy, memory-mapped. Full persistence, one engine instead of database plus cache.
                         </p>
-
-                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+                        <p className="text-zinc-500 text-sm mb-8">
+                            REST, WebSockets, ACID.
+                        </p>
+                        <div className="flex flex-wrap gap-3">
                             <NavLink
                                 to="/docs/getting_started/installation"
-                                className="px-8 py-3.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-semibold transition-all shadow-lg shadow-orange-500/20 flex items-center gap-2"
+                                className="px-6 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-medium transition-colors inline-flex items-center gap-2"
                             >
-                                Build Fast <ArrowRight size={18} />
+                                Get started <ArrowRight size={16} />
                             </NavLink>
                             <NavLink
                                 to="/docs"
-                                className="px-8 py-3.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 font-medium transition-all"
+                                className="px-6 py-3 rounded-lg border border-zinc-700 hover:border-zinc-600 text-zinc-300 font-medium transition-colors"
                             >
-                                Explore Docs
+                                Docs
                             </NavLink>
+                        </div>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, x: 16 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.4, delay: 0.1 }}
+                        className="hidden md:block"
+                    >
+                        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 font-mono text-sm text-zinc-400">
+                            <div className="text-zinc-500 text-xs mb-4"># one engine, no cache layer</div>
+                            <div><span className="text-orange-400">POST</span> /insert/:model</div>
+                            <div><span className="text-orange-400">GET</span>  /get/:model/:id</div>
+                            <div><span className="text-orange-400">GET</span>  /query/:model</div>
+                            <div><span className="text-orange-400">WS</span>  /ws</div>
                         </div>
                     </motion.div>
                 </div>

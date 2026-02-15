@@ -23,6 +23,11 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Hero: single gradient strip from top, no blobs */
+.hero-bg {
+  background: linear-gradient(to bottom, rgba(234, 88, 12, 0.07) 0%, transparent 45%);
+}
+
 /* Force Prose Spacing - Fallback for Tailwind Typography */
 .prose p {
   margin-bottom: 1.5em;
