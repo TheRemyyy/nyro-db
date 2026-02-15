@@ -5,16 +5,15 @@ import { ArrowRight } from 'lucide-react';
 export default function Home() {
     return (
         <div className="min-h-screen bg-background text-zinc-100 overflow-hidden font-sans">
-            {/* Hero Section - Left / Right */}
-            <section className="hero-bg relative min-h-screen flex items-center px-4 py-16 overflow-hidden">
-
-                <div className="relative z-10 w-full max-w-6xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 items-center">
+            {/* Hero - same layout as later sections: max-w-5xl, code block style like Code Demo */}
+            <section className="hero-bg relative min-h-screen flex items-center px-4 py-20 md:py-28 overflow-hidden border-y border-white/5">
+                <div className="relative z-10 w-full max-w-5xl mx-auto grid md:grid-cols-2 gap-12 md:gap-16 items-center">
                     <motion.div
                         initial={{ opacity: 0, x: -16 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ duration: 0.4 }}
                     >
-                        <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-5 text-white leading-tight">
+                        <h1 className="text-3xl md:text-4xl font-bold tracking-tight mb-5 text-white leading-tight">
                             The unified storage engine for hyper-scale apps
                         </h1>
                         <p className="text-zinc-400 max-w-lg mb-3 leading-relaxed">
@@ -45,32 +44,39 @@ export default function Home() {
                         transition={{ duration: 0.4, delay: 0.1 }}
                         className="hidden md:block"
                     >
-                        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 font-mono text-sm text-zinc-400">
-                            <div className="text-zinc-500 text-xs mb-4"># one engine, no cache layer</div>
-                            <div><span className="text-orange-400">POST</span> /insert/:model</div>
-                            <div><span className="text-orange-400">GET</span>  /get/:model/:id</div>
-                            <div><span className="text-orange-400">GET</span>  /query/:model</div>
-                            <div><span className="text-orange-400">WS</span>  /ws</div>
+                        <div className="rounded-xl border border-zinc-800 bg-[#09090b] p-6 font-mono text-sm overflow-hidden shadow-2xl">
+                            <div className="flex gap-2 mb-4">
+                                <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50" />
+                                <div className="w-3 h-3 rounded-full bg-yellow-500/20 border border-yellow-500/50" />
+                                <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50" />
+                            </div>
+                            <div className="text-zinc-400">
+                                <div className="text-zinc-500 text-xs mb-3"># one engine, no cache layer</div>
+                                <div><span className="text-orange-400">POST</span> /insert/:model</div>
+                                <div><span className="text-orange-400">GET</span>  /get/:model/:id</div>
+                                <div><span className="text-orange-400">GET</span>  /query/:model</div>
+                                <div><span className="text-orange-400">WS</span>  /ws</div>
+                            </div>
                         </div>
                     </motion.div>
                 </div>
             </section>
 
-            {/* Cache-aside: before vs after */}
-            <section className="py-20 md:py-28 px-4 border-y border-white/5">
+            {/* Cache-aside - same card style as Code Demo: rounded-xl, bg like later sections */}
+            <section className="py-20 md:py-28 px-4 bg-zinc-950 border-t border-white/5">
                 <div className="max-w-5xl mx-auto">
-                    <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight mb-12 md:mb-16 text-center">
+                    <h2 className="text-3xl font-bold text-white tracking-tight mb-12 md:mb-16 text-center">
                         Killing the cache-aside complexity
                     </h2>
 
                     <div className="grid md:grid-cols-2 gap-8 md:gap-12 mb-12">
-                        <div className="p-6 md:p-8 rounded-lg border border-zinc-800 bg-zinc-900/30">
+                        <div className="p-6 md:p-8 rounded-xl border border-zinc-800 bg-[#09090b]">
                             <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-4">Without NyroDB</p>
                             <p className="text-zinc-400 leading-relaxed">
                                 Database for durability, Redis or Memcached for speed, plus pipelines, invalidation, and hope that both stay in sync. Two systems, more moving parts.
                             </p>
                         </div>
-                        <div className="p-6 md:p-8 rounded-lg border border-orange-500/20 bg-orange-500/5">
+                        <div className="p-6 md:p-8 rounded-xl border border-orange-500/20 bg-[#09090b]">
                             <p className="text-xs font-semibold text-orange-400 uppercase tracking-wider mb-4">With NyroDB</p>
                             <p className="text-zinc-300 leading-relaxed">
                                 One engine: memory-mapped, zero-copy, fast as RAM and durable as disk. Single source of truth: no cache layer, no sync. Built for scale.
@@ -87,8 +93,8 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* Core Architecture - Compact */}
-            <section className="py-24 px-4">
+            {/* Core Architecture - same section rhythm */}
+            <section className="py-20 md:py-28 px-4">
                 <div className="max-w-3xl mx-auto text-center">
                     <h2 className="text-3xl font-bold mb-3 text-white tracking-tight">Core Architecture</h2>
                     <p className="text-zinc-400 leading-relaxed mb-8">
@@ -105,7 +111,7 @@ export default function Home() {
             </section>
 
             {/* Code Demo */}
-            <section className="py-20 px-4 bg-zinc-950 border-t border-white/5">
+            <section className="py-20 md:py-28 px-4 bg-zinc-950 border-t border-white/5">
                 <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center gap-12">
                     <div className="flex-1 space-y-6">
                         <h2 className="text-3xl font-bold">Simple, Declarative API</h2>
