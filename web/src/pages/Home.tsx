@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Zap, Database, Globe, ArrowRight, Cpu, Layers } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export default function Home() {
     return (
@@ -91,43 +91,20 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* Features Grid */}
+            {/* Core Architecture - Compact */}
             <section className="py-24 px-4">
-                <div className="text-center mb-16">
-                    <h2 className="text-3xl font-bold mb-4">Core Architecture</h2>
-                    <p className="text-zinc-500">Built for the limits of modern hardware.</p>
-                </div>
-                <div className="max-w-6xl mx-auto grid md:grid-cols-3 gap-8">
-                    <FeatureCard
-                        icon={Zap}
-                        title="Extreme Throughput"
-                        desc="Utilizes asynchronous batching and wait-free data structures to saturate your I/O subsystem."
-                    />
-                    <FeatureCard
-                        icon={Globe}
-                        title="Native WebSocket Layer"
-                        desc="A built-in pub/sub engine allows clients to subscribe to specific JSON paths and get updates in real-time."
-                    />
-                    <FeatureCard
-                        icon={Database}
-                        title="O(1) Secondary Indexing"
-                        desc="NyroDB automatically indexes your JSON fields without schema definitions or heavy migration scripts."
-                    />
-                    <FeatureCard
-                        icon={Cpu}
-                        title="ACID Persistence"
-                        desc="Atomic, Consistent, Isolated, and Durable. Your data is safe even during power failure via WAL recovery."
-                    />
-                    <FeatureCard
-                        icon={Layers}
-                        title="Rust & Zero-Copy"
-                        desc="Data is accessed directly via memory pointers. No serialization overhead, no GC, no compromises."
-                    />
-                    <FeatureCard
-                        icon={Zap}
-                        title="Multi-Tenant Auth"
-                        desc="Strict API-key validation and namespace isolation for secure multi-application environments."
-                    />
+                <div className="max-w-3xl mx-auto text-center">
+                    <h2 className="text-3xl font-bold mb-3 text-white tracking-tight">Core Architecture</h2>
+                    <p className="text-zinc-400 leading-relaxed mb-8">
+                        High throughput, ACID persistence, O(1) indexing, real-time WebSockets, zero-copy Rust, and multi-tenant auth—in one engine.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                        {['Throughput', 'ACID', 'O(1) indexing', 'WebSocket', 'Zero-copy', 'Multi-tenant'].map((label) => (
+                            <span key={label} className="px-3 py-1.5 text-xs font-medium text-zinc-400 bg-zinc-800/60 border border-zinc-700/50 rounded">
+                                {label}
+                            </span>
+                        ))}
+                    </div>
                 </div>
             </section>
 
@@ -169,18 +146,6 @@ export default function Home() {
                     </div>
                 </div>
             </section>
-        </div>
-    );
-}
-
-function FeatureCard({ icon: Icon, title, desc }: { icon: any, title: string, desc: string }) { 
-    return (
-        <div className="p-8 rounded-xl bg-zinc-900/40 border border-zinc-800 hover:border-orange-500/50 transition-all group">
-            <div className="w-12 h-12 rounded-lg bg-zinc-900 flex items-center justify-center mb-6 group-hover:bg-orange-500/10 transition-colors border border-zinc-800 group-hover:border-orange-500/20">
-                <Icon className="text-zinc-500 group-hover:text-orange-400 transition-colors" size={24} />
-            </div>
-            <h3 className="text-xl font-bold text-white mb-3 tracking-tight">{title}</h3>
-            <p className="text-zinc-400 leading-relaxed">{desc}</p>
         </div>
     );
 }
