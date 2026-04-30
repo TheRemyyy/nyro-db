@@ -14,15 +14,13 @@ use crate::storage::LogStorage;
 use crate::utils::logger::Logger;
 use crate::utils::metrics::Metrics;
 
-type PendingInsert = (
-    LogEntry<Value>,
-    tokio::sync::oneshot::Sender<Result<(), String>>,
-);
+type InsertCommitter = tokio::sync::oneshot::Sender<Result<(), String>>;
 
 struct PendingModelBatch {
     storage: Arc<LogStorage>,
     model_name: String,
-    entries: Vec<PendingInsert>,
+    entries: Vec<LogEntry<Value>>,
+    committers: Vec<InsertCommitter>,
 }
 
 pub(crate) struct BatchProcessor {
@@ -148,7 +146,7 @@ fn push_pending_insert(
 
     match primary_batch {
         Some((primary_key, pending_batch)) if *primary_key == storage_key => {
-            pending_batch.entries.push((entry, committed));
+            pending_batch.push(entry, committed);
         }
         Some(_) => {
             let Some((primary_key, pending_batch)) = primary_batch.take() else {
@@ -174,7 +172,7 @@ fn push_grouped_insert(
 ) {
     match grouped.entry(storage_key) {
         Entry::Occupied(mut model_batch) => {
-            model_batch.get_mut().entries.push((entry, committed));
+            model_batch.get_mut().push(entry, committed);
         }
         Entry::Vacant(empty_slot) => {
             empty_slot.insert(new_pending_batch(storage, entry, committed));
@@ -189,8 +187,16 @@ fn new_pending_batch(
 ) -> PendingModelBatch {
     PendingModelBatch {
         model_name: storage.model_name().to_string(),
-        entries: vec![(entry, committed)],
+        entries: vec![entry],
+        committers: vec![committed],
         storage,
+    }
+}
+
+impl PendingModelBatch {
+    fn push(&mut self, entry: LogEntry<Value>, committed: InsertCommitter) {
+        self.entries.push(entry);
+        self.committers.push(committed);
     }
 }
 
@@ -201,12 +207,7 @@ fn process_model_batch(
     real_time_tx: &tokio::sync::broadcast::Sender<String>,
 ) {
     let timer = Instant::now();
-    let log_entries = pending_batch
-        .entries
-        .iter()
-        .map(|(entry, _)| entry)
-        .collect::<Vec<_>>();
-    let result = pending_batch.storage.append_many(&log_entries);
+    let result = pending_batch.storage.append_entries(&pending_batch.entries);
 
     match result {
         Ok(()) => {
@@ -219,21 +220,23 @@ fn process_model_batch(
                 );
             }
             let publish_realtime = real_time_tx.receiver_count() > 0;
-            for (entry, committed) in pending_batch.entries {
-                if publish_realtime {
+            if publish_realtime {
+                for entry in &pending_batch.entries {
                     publish_insert_event(
                         real_time_tx,
                         log_config,
                         &pending_batch.model_name,
-                        &entry,
+                        entry,
                     );
                 }
+            }
+            for committed in pending_batch.committers {
                 let _ = committed.send(Ok(()));
             }
         }
         Err(error) => {
             let message = error.to_string();
-            for (_, committed) in pending_batch.entries {
+            for committed in pending_batch.committers {
                 let _ = committed.send(Err(message.clone()));
             }
         }
