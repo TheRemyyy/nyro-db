@@ -35,12 +35,18 @@ impl Metrics {
     }
 
     pub fn record_insert(&self, duration: Duration, max_samples: usize) {
+        self.record_inserts(1, duration, max_samples);
+    }
+
+    pub fn record_inserts(&self, count: u64, duration: Duration, max_samples: usize) {
         if !self.enabled {
             return;
         }
-        self.total_inserts.fetch_add(1, Ordering::Relaxed);
+        self.total_inserts.fetch_add(count, Ordering::Relaxed);
         if let Ok(mut times) = self.insert_times.try_write() {
-            times.push(duration);
+            let available_samples = max_samples.saturating_sub(times.len());
+            let samples_to_add = available_samples.min(count as usize);
+            times.extend(std::iter::repeat_n(duration, samples_to_add));
             if times.len() > max_samples {
                 times.drain(0..max_samples / 2);
             }

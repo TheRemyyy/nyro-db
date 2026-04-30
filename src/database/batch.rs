@@ -211,9 +211,23 @@ fn process_model_batch(
     match result {
         Ok(()) => {
             let elapsed = timer.elapsed();
+            if metrics.enabled {
+                metrics.record_inserts(
+                    pending_batch.entries.len() as u64,
+                    elapsed,
+                    metrics.max_samples(),
+                );
+            }
+            let publish_realtime = real_time_tx.receiver_count() > 0;
             for (entry, committed) in pending_batch.entries {
-                metrics.record_insert(elapsed, metrics.max_samples());
-                publish_insert_event(real_time_tx, log_config, &pending_batch.model_name, &entry);
+                if publish_realtime {
+                    publish_insert_event(
+                        real_time_tx,
+                        log_config,
+                        &pending_batch.model_name,
+                        &entry,
+                    );
+                }
                 let _ = committed.send(Ok(()));
             }
         }

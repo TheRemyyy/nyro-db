@@ -21,7 +21,9 @@ use crate::models::{LogEntry, Operation};
 use crate::storage::LogStorage;
 use crate::utils::logger::Logger;
 use crate::utils::metrics::{Metrics, MetricsReport};
-use helpers::{current_unix_millis, entry_id, field_matches, publish_insert_event};
+use helpers::{
+    current_unix_millis, entry_id, field_matches, finish_bulk_insert, publish_insert_event,
+};
 use types::BatchOperation;
 
 impl NyroDB {
@@ -144,11 +146,15 @@ impl NyroDB {
         let entry_refs = entries.iter().collect::<Vec<_>>();
         self.get_storage(model_name)?.append_many(&entry_refs)?;
 
-        for entry in &entries {
-            self.metrics
-                .record_insert(start.elapsed(), self.config.metrics.max_samples);
-            self.publish_insert(model_name, entry);
-        }
+        finish_bulk_insert(
+            &self.metrics,
+            self.config.metrics.max_samples,
+            &self.real_time_tx,
+            &self.config.logging,
+            model_name,
+            &entries,
+            start,
+        );
 
         Ok(ids)
     }
