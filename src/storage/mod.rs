@@ -22,7 +22,7 @@ use crate::models::LogEntry;
 use crate::utils::logger::Logger;
 
 use dashmap::DashMap;
-use encoding::{operation_from_u8, RawEntry};
+use encoding::{decode_raw_entry, operation_from_u8};
 use std::sync::atomic::AtomicU64;
 
 pub struct LogStorage {
@@ -168,7 +168,7 @@ impl LogStorage {
                 let end = start + 4 + location.size as usize;
                 if end <= mmap.len() {
                     let data = &mmap[start + 4..end];
-                    bincode::deserialize::<RawEntry>(data)?
+                    decode_raw_entry(data)?
                 } else {
                     return self.decode_cached_entry(indexed_entry);
                 }

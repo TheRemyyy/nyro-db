@@ -5,8 +5,9 @@ use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use crate::storage::encoding::decode_raw_entry;
 use crate::storage::index::{CachedEntry, EntryLocation, IndexedEntry};
-use crate::storage::{LogStorage, RawEntry};
+use crate::storage::LogStorage;
 
 impl LogStorage {
     pub(super) fn rebuild_index(&self) -> Result<()> {
@@ -40,7 +41,7 @@ impl LogStorage {
         let mut buffer = vec![0u8; size as usize];
         file.read_exact(&mut buffer)?;
 
-        let raw_entry: RawEntry = bincode::deserialize(&buffer)?;
+        let raw_entry = decode_raw_entry(&buffer)?;
         let data: Value = serde_json::from_slice(&raw_entry.data)?;
         if let Some(id) = data.get("id").and_then(|value| value.as_u64()) {
             self.index.insert(
