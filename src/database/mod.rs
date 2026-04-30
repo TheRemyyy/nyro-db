@@ -1,12 +1,13 @@
 mod batch;
 mod helpers;
+mod runtime;
 #[cfg(test)]
 mod tests;
 mod types;
 pub(crate) mod validation;
 
 use anyhow::Result;
-use dashmap::{mapref::entry::Entry, DashMap};
+use dashmap::DashMap;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -64,7 +65,7 @@ impl NyroDB {
         Logger::info_with_config(&log_config, "NyroDB engine initialized successfully");
 
         Self {
-            storages,
+            runtimes: storages,
             batch_sender,
             metrics,
             shutdown_flag,
@@ -74,45 +75,18 @@ impl NyroDB {
         }
     }
 
-    pub fn get_storage(&self, model_name: &str) -> Result<Arc<LogStorage>> {
-        if !self.config.models.contains_key(model_name) {
-            return Err(anyhow::anyhow!(
-                "Model '{}' not defined in configuration",
-                model_name
-            ));
-        }
-
-        if let Some(storage) = self.storages.get(model_name) {
-            return Ok(storage.clone());
-        }
-
-        match self.storages.entry(model_name.to_string()) {
-            Entry::Occupied(existing_storage) => Ok(existing_storage.get().clone()),
-            Entry::Vacant(empty_slot) => {
-                let schema = self.config.models.get(model_name).ok_or_else(|| {
-                    anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-                })?;
-                let new_storage = Arc::new(LogStorage::new(
-                    model_name,
-                    &self.config.storage,
-                    &self.config.logging,
-                    schema,
-                )?);
-                empty_slot.insert(new_storage.clone());
-                Ok(new_storage)
-            }
-        }
-    }
-
     pub async fn insert_raw(&self, model_name: &str, data: Value) -> Result<u64> {
         let start = Instant::now();
-        let log_entry = self.prepare_insert_entry(model_name, data)?;
+        let runtime = self.get_runtime(model_name)?;
+        let log_entry =
+            Self::prepare_insert_entry_for_schema(&runtime.schema, data, current_unix_millis()?)?;
         let id = entry_id(&log_entry)?;
 
         if self.config.performance.batch_size > 1 {
-            self.insert_batched(model_name, log_entry).await?;
+            self.insert_batched(runtime.storage.clone(), log_entry)
+                .await?;
         } else {
-            self.get_storage(model_name)?.append(&log_entry)?;
+            runtime.storage.append(&log_entry)?;
             self.metrics
                 .record_insert(start.elapsed(), self.config.metrics.max_samples);
             self.publish_insert(model_name, &log_entry);
@@ -124,13 +98,11 @@ impl NyroDB {
     pub async fn insert_many_raw(&self, model_name: &str, rows: Vec<Value>) -> Result<Vec<u64>> {
         let start = Instant::now();
         let timestamp = current_unix_millis()?;
-        let schema = self.config.models.get(model_name).ok_or_else(|| {
-            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-        })?;
+        let runtime = self.get_runtime(model_name)?;
         let prepared_rows = rows
             .into_par_iter()
             .map(|row| {
-                let entry = Self::prepare_insert_entry_for_schema(schema, row, timestamp)?;
+                let entry = Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
                 let id = entry_id(&entry)?;
                 Ok((id, entry))
             })
@@ -143,7 +115,7 @@ impl NyroDB {
             entries.push(entry);
         }
 
-        self.get_storage(model_name)?.append_entries(&entries)?;
+        runtime.storage.append_entries(&entries)?;
 
         finish_bulk_insert(
             &self.metrics,
@@ -156,13 +128,6 @@ impl NyroDB {
         );
 
         Ok(ids)
-    }
-
-    fn prepare_insert_entry(&self, model_name: &str, data: Value) -> Result<LogEntry<Value>> {
-        let schema = self.config.models.get(model_name).ok_or_else(|| {
-            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-        })?;
-        Self::prepare_insert_entry_for_schema(schema, data, current_unix_millis()?)
     }
 
     fn prepare_insert_entry_for_schema(
@@ -240,9 +205,9 @@ impl NyroDB {
         tokio::time::sleep(timeout).await;
 
         let mut shutdown_count = 0;
-        for item in self.storages.iter() {
-            let (model_name, storage) = item.pair();
-            if let Err(error) = storage.shutdown(&self.config.logging) {
+        for item in self.runtimes.iter() {
+            let (model_name, runtime) = item.pair();
+            if let Err(error) = runtime.storage.shutdown(&self.config.logging) {
                 Logger::error_with_config(
                     &self.config.logging,
                     &format!("Failed to shutdown storage for {}: {}", model_name, error),
@@ -276,8 +241,7 @@ impl NyroDB {
         Arc::clone(&self.concurrency_limiter)
     }
 
-    async fn insert_batched(&self, model_name: &str, entry: LogEntry<Value>) -> Result<()> {
-        let storage = self.get_storage(model_name)?;
+    async fn insert_batched(&self, storage: Arc<LogStorage>, entry: LogEntry<Value>) -> Result<()> {
         let (committed_tx, committed_rx) = oneshot::channel();
         self.batch_sender
             .send(BatchOperation::Insert {
