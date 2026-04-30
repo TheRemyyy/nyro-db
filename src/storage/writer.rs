@@ -5,7 +5,7 @@ use std::io::Write;
 
 use crate::models::LogEntry;
 
-use super::encoding::{self, EncodedEntry};
+use super::encoding::{self, CacheMode, EncodedEntry};
 use super::index::{EntryLocation, IndexedEntry};
 use super::LogStorage;
 
@@ -13,8 +13,18 @@ const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
 
 impl LogStorage {
     pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
+        let encoded_entry = encoding::encode_entry(
+            entry,
+            &self.indexed_fields,
+            &self.field_codecs,
+            CacheMode::ParsedValue,
+        )?;
+        self.append_encoded_entry(encoded_entry)
+    }
+
+    pub fn append_owned(&self, entry: LogEntry<Value>) -> Result<()> {
         let encoded_entry =
-            encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)?;
+            encoding::encode_owned_entry(entry, &self.indexed_fields, &self.field_codecs)?;
         self.append_encoded_entry(encoded_entry)
     }
 
@@ -55,11 +65,9 @@ impl LogStorage {
             file.get_ref().sync_data()?;
         }
 
-        for (entry_offset, encoded_entry) in &committed_entries {
-            self.insert_indexes(*entry_offset, encoded_entry);
-        }
         self.current_offset
             .store(offset, std::sync::atomic::Ordering::SeqCst);
+        self.insert_indexes_many(committed_entries);
 
         Ok(())
     }
@@ -92,14 +100,26 @@ impl LogStorage {
             return entries
                 .par_iter()
                 .map(|entry| {
-                    encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)
+                    encoding::encode_entry(
+                        entry,
+                        &self.indexed_fields,
+                        &self.field_codecs,
+                        CacheMode::JsonBytes,
+                    )
                 })
                 .collect::<Result<Vec<_>>>();
         }
 
         entries
             .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs))
+            .map(|entry| {
+                encoding::encode_entry(
+                    entry,
+                    &self.indexed_fields,
+                    &self.field_codecs,
+                    CacheMode::JsonBytes,
+                )
+            })
             .collect::<Result<Vec<_>>>()
     }
 
@@ -108,14 +128,26 @@ impl LogStorage {
             return entries
                 .par_iter()
                 .map(|entry| {
-                    encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)
+                    encoding::encode_entry(
+                        entry,
+                        &self.indexed_fields,
+                        &self.field_codecs,
+                        CacheMode::JsonBytes,
+                    )
                 })
                 .collect::<Result<Vec<_>>>();
         }
 
         entries
             .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs))
+            .map(|entry| {
+                encoding::encode_entry(
+                    entry,
+                    &self.indexed_fields,
+                    &self.field_codecs,
+                    CacheMode::JsonBytes,
+                )
+            })
             .collect::<Result<Vec<_>>>()
     }
 
@@ -138,6 +170,36 @@ impl LogStorage {
                     .or_default()
                     .push(index_data.id);
             }
+        }
+    }
+
+    fn insert_indexes_many(&self, committed_entries: Vec<(u64, EncodedEntry)>) {
+        let mut primary_entries = Vec::with_capacity(committed_entries.len());
+        let mut secondary_entries = Vec::new();
+
+        for (offset, encoded_entry) in committed_entries {
+            let Some(index_data) = encoded_entry.index_data else {
+                continue;
+            };
+            primary_entries.push((
+                index_data.id,
+                IndexedEntry {
+                    location: EntryLocation {
+                        offset,
+                        size: encoded_entry.size,
+                    },
+                    cache: encoded_entry.cache_entry,
+                },
+            ));
+            for (field, value) in index_data.fields {
+                secondary_entries.push((field, value, index_data.id));
+            }
+        }
+
+        self.index.insert_many(primary_entries);
+        for (field, value, id) in secondary_entries {
+            let field_idx = self.secondary_indices.entry(field).or_default();
+            field_idx.entry(value).or_default().push(id);
         }
     }
 }

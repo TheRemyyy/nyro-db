@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use parking_lot::RwLock;
+use serde_json::Value;
 use std::sync::Arc;
 
 const DENSE_GROWTH_SLACK: u64 = 1_000_000;
@@ -15,7 +16,13 @@ pub(crate) struct EntryLocation {
 pub(crate) struct CachedEntry {
     pub(crate) timestamp: u64,
     pub(crate) operation: u8,
-    pub(crate) data: Arc<[u8]>,
+    pub(crate) data: CachedData,
+}
+
+#[derive(Clone)]
+pub(crate) enum CachedData {
+    Json(Arc<[u8]>),
+    Parsed(Arc<Value>),
 }
 
 #[derive(Clone)]
@@ -63,6 +70,44 @@ impl PrimaryIndex {
 
         drop(dense);
         self.sparse.insert(id, entry);
+    }
+
+    pub(crate) fn insert_many(&self, entries: Vec<(u64, IndexedEntry)>) {
+        if entries.is_empty() {
+            return;
+        }
+
+        let mut dense_entries = Vec::with_capacity(entries.len());
+        let mut sparse_entries = Vec::new();
+        let dense_len = self.dense.read().len() as u64;
+        let dense_limit = dense_len.saturating_add(DENSE_GROWTH_SLACK);
+
+        for (id, entry) in entries {
+            match usize::try_from(id) {
+                Ok(index) if id <= dense_limit => dense_entries.push((id, index, entry)),
+                _ => sparse_entries.push((id, entry)),
+            }
+        }
+
+        if !dense_entries.is_empty() {
+            let max_index = dense_entries
+                .iter()
+                .map(|(_, index, _)| *index)
+                .max()
+                .unwrap_or(0);
+            let mut dense = self.dense.write();
+            if max_index >= dense.len() {
+                dense.resize_with(max_index.saturating_add(DENSE_RESIZE_CHUNK + 1), || None);
+            }
+            for (id, index, entry) in dense_entries {
+                dense[index] = Some(entry);
+                self.sparse.remove(&id);
+            }
+        }
+
+        for (id, entry) in sparse_entries {
+            self.sparse.insert(id, entry);
+        }
     }
 
     pub(crate) fn get(&self, id: u64) -> Option<IndexedEntry> {

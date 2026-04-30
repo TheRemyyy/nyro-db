@@ -3,10 +3,9 @@ use serde_json::Value;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use crate::storage::encoding::decode_raw_entry;
-use crate::storage::index::{CachedEntry, EntryLocation, IndexedEntry};
+use crate::storage::index::{CachedData, CachedEntry, EntryLocation, IndexedEntry};
 use crate::storage::LogStorage;
 
 impl LogStorage {
@@ -51,7 +50,7 @@ impl LogStorage {
                     cache: CachedEntry {
                         timestamp: raw_entry.timestamp,
                         operation: raw_entry.operation,
-                        data: Arc::from(raw_entry.data),
+                        data: CachedData::Json(std::sync::Arc::from(raw_entry.data)),
                     },
                 },
             );

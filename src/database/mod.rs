@@ -63,11 +63,18 @@ impl NyroDB {
         let runtime = self.get_runtime(model_name)?;
         let (id, log_entry) =
             Self::prepare_insert_entry_for_schema(&runtime.schema, data, current_unix_millis()?)?;
+        let realtime_entry = if self.real_time_tx.receiver_count() > 0 {
+            Some(log_entry.clone())
+        } else {
+            None
+        };
 
-        runtime.storage.append(&log_entry)?;
+        runtime.storage.append_owned(log_entry)?;
         self.metrics
             .record_insert(start.elapsed(), self.config.metrics.max_samples);
-        self.publish_insert(model_name, &log_entry);
+        if let Some(entry) = realtime_entry {
+            self.publish_insert(model_name, &entry);
+        }
 
         Ok(id)
     }

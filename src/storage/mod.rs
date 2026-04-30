@@ -1,11 +1,13 @@
 mod encoding;
+#[cfg(test)]
+mod encoding_tests;
 mod index;
 mod rebuild;
 mod typed;
 mod writer;
 
 use anyhow::Result;
-use index::{IndexedEntry, PrimaryIndex};
+use index::{CachedData, IndexedEntry, PrimaryIndex};
 use memmap2::MmapOptions;
 use parking_lot::RwLock;
 use serde::Deserialize;
@@ -187,7 +189,10 @@ impl LogStorage {
     pub fn get_value(&self, id: u64) -> Result<Option<Value>> {
         self.index
             .get(id)
-            .map(|entry| serde_json::from_slice(&entry.cache.data).map_err(Into::into))
+            .map(|entry| match &entry.cache.data {
+                CachedData::Json(data) => serde_json::from_slice(data).map_err(Into::into),
+                CachedData::Parsed(data) => Ok((**data).clone()),
+            })
             .transpose()
     }
 
@@ -195,7 +200,10 @@ impl LogStorage {
         &self,
         indexed_entry: IndexedEntry,
     ) -> Result<Option<LogEntry<T>>> {
-        let data = serde_json::from_slice(&indexed_entry.cache.data)?;
+        let data = match &indexed_entry.cache.data {
+            CachedData::Json(data) => serde_json::from_slice(data)?,
+            CachedData::Parsed(data) => serde_json::from_value((**data).clone())?,
+        };
         let operation = operation_from_u8(indexed_entry.cache.operation)?;
 
         Ok(Some(LogEntry {

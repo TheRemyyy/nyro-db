@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::models::{LogEntry, Operation};
-use crate::storage::index::CachedEntry;
+use crate::storage::index::{CachedData, CachedEntry};
 use crate::storage::typed::{decode_typed_payload, encode_typed_payload, FieldCodec};
 
 const JSON_ENTRY_MAGIC: &[u8; 4] = b"NYR1";
@@ -32,28 +32,110 @@ pub(crate) struct IndexData {
     pub(crate) fields: Vec<(String, String)>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum CacheMode {
+    JsonBytes,
+    ParsedValue,
+}
+
 pub(crate) fn encode_entry(
     entry: &LogEntry<Value>,
     indexed_fields: &HashSet<String>,
     field_codecs: &[FieldCodec],
+    cache_mode: CacheMode,
 ) -> Result<EncodedEntry> {
-    let json_data = serde_json::to_vec(&entry.data)?;
+    let mut core = encode_entry_core(
+        entry.timestamp,
+        operation_to_u8(&entry.operation),
+        &entry.data,
+        indexed_fields,
+        field_codecs,
+        matches!(cache_mode, CacheMode::JsonBytes),
+    )?;
+    let cache_data = match cache_mode {
+        CacheMode::JsonBytes => CachedData::Json(Arc::from(
+            core.json_data
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("Missing JSON cache payload"))?,
+        )),
+        CacheMode::ParsedValue => CachedData::Parsed(Arc::new(entry.data.clone())),
+    };
+    Ok(core.into_encoded_entry(entry.timestamp, cache_data))
+}
+
+pub(crate) fn encode_owned_entry(
+    entry: LogEntry<Value>,
+    indexed_fields: &HashSet<String>,
+    field_codecs: &[FieldCodec],
+) -> Result<EncodedEntry> {
+    let timestamp = entry.timestamp;
     let operation = operation_to_u8(&entry.operation);
-    let data = encode_typed_payload(&entry.data, field_codecs)
-        .map(|payload| encode_typed_raw_entry(entry.timestamp, operation, &payload))
-        .unwrap_or_else(|| encode_json_raw_entry(entry.timestamp, operation, &json_data));
+    let data = entry.data;
+    let core = encode_entry_core(
+        timestamp,
+        operation,
+        &data,
+        indexed_fields,
+        field_codecs,
+        false,
+    )?;
+    Ok(core.into_encoded_entry(timestamp, CachedData::Parsed(Arc::new(data))))
+}
+
+struct EncodedCore {
+    data: Vec<u8>,
+    size: u32,
+    operation: u8,
+    index_data: Option<IndexData>,
+    json_data: Option<Vec<u8>>,
+}
+
+impl EncodedCore {
+    fn into_encoded_entry(self, timestamp: u64, cache_data: CachedData) -> EncodedEntry {
+        EncodedEntry {
+            data: self.data,
+            size: self.size,
+            index_data: self.index_data,
+            cache_entry: CachedEntry {
+                timestamp,
+                operation: self.operation,
+                data: cache_data,
+            },
+        }
+    }
+}
+
+fn encode_entry_core(
+    timestamp: u64,
+    operation: u8,
+    entry_data: &Value,
+    indexed_fields: &HashSet<String>,
+    field_codecs: &[FieldCodec],
+    needs_json_cache: bool,
+) -> Result<EncodedCore> {
+    let typed_payload = encode_typed_payload(entry_data, field_codecs);
+    let json_data = if needs_json_cache || typed_payload.is_none() {
+        Some(serde_json::to_vec(entry_data)?)
+    } else {
+        None
+    };
+    let data = if let Some(payload) = typed_payload {
+        encode_typed_raw_entry(timestamp, operation, &payload)
+    } else {
+        let json = json_data
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Missing JSON fallback payload"))?;
+        encode_json_raw_entry(timestamp, operation, json)
+    };
     let size = u32::try_from(data.len())
         .map_err(|_| anyhow::anyhow!("Serialized entry is larger than u32::MAX"))?;
 
-    Ok(EncodedEntry {
+    Ok(EncodedCore {
         data,
         size,
-        index_data: build_index_data(&entry.data, indexed_fields),
-        cache_entry: CachedEntry {
-            timestamp: entry.timestamp,
-            operation,
-            data: Arc::from(json_data),
-        },
+        operation,
+        index_data: build_index_data(entry_data, indexed_fields),
+        json_data,
     })
 }
 
@@ -67,7 +149,7 @@ pub(crate) fn decode_raw_entry(data: &[u8], field_codecs: &[FieldCodec]) -> Resu
     bincode::deserialize(data).map_err(Into::into)
 }
 
-fn encode_json_raw_entry(timestamp: u64, operation: u8, json_data: &[u8]) -> Vec<u8> {
+pub(super) fn encode_json_raw_entry(timestamp: u64, operation: u8, json_data: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(JSON_HEADER_SIZE + json_data.len());
     data.extend_from_slice(JSON_ENTRY_MAGIC);
     data.extend_from_slice(&timestamp.to_le_bytes());
@@ -76,7 +158,7 @@ fn encode_json_raw_entry(timestamp: u64, operation: u8, json_data: &[u8]) -> Vec
     data
 }
 
-fn encode_typed_raw_entry(timestamp: u64, operation: u8, payload: &[u8]) -> Vec<u8> {
+pub(super) fn encode_typed_raw_entry(timestamp: u64, operation: u8, payload: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(TYPED_HEADER_SIZE + payload.len());
     data.extend_from_slice(TYPED_ENTRY_MAGIC);
     data.extend_from_slice(&timestamp.to_le_bytes());
@@ -162,79 +244,4 @@ fn build_index_data(data: &Value, indexed_fields: &HashSet<String>) -> Option<In
         .unwrap_or_default();
 
     Some(IndexData { id, fields })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{decode_raw_entry, encode_json_raw_entry, encode_typed_raw_entry, RawEntry};
-    use crate::config::{ModelField, ModelSchema};
-    use crate::storage::typed::{encode_typed_payload, field_codecs_from_schema};
-    use serde_json::{json, Value};
-
-    #[test]
-    fn decodes_json_raw_entry_format() -> anyhow::Result<()> {
-        let encoded = encode_json_raw_entry(123, 0, br#"{"id":1}"#);
-        let decoded = decode_raw_entry(&encoded, &[])?;
-
-        assert_eq!(decoded.timestamp, 123);
-        assert_eq!(decoded.operation, 0);
-        assert_eq!(decoded.data, br#"{"id":1}"#);
-        Ok(())
-    }
-
-    #[test]
-    fn decodes_typed_raw_entry_format() -> anyhow::Result<()> {
-        let codecs = field_codecs_from_schema(&test_schema());
-        let value = json!({
-            "id": 7,
-            "email": "a@nyro.local",
-            "hash_password": "hash_7",
-            "created_at": 99
-        });
-        let payload = encode_typed_payload(&value, &codecs)
-            .ok_or_else(|| anyhow::anyhow!("expected typed payload"))?;
-        let encoded = encode_typed_raw_entry(456, 0, &payload);
-        let decoded = decode_raw_entry(&encoded, &codecs)?;
-        let decoded_value: Value = serde_json::from_slice(&decoded.data)?;
-
-        assert_eq!(decoded.timestamp, 456);
-        assert_eq!(decoded.operation, 0);
-        assert_eq!(decoded_value, value);
-        Ok(())
-    }
-
-    #[test]
-    fn decodes_legacy_bincode_raw_entry_format() -> anyhow::Result<()> {
-        let encoded = bincode::serialize(&RawEntry {
-            timestamp: 789,
-            operation: 1,
-            data: br#"{"id":2}"#.to_vec(),
-        })?;
-        let decoded = decode_raw_entry(&encoded, &[])?;
-
-        assert_eq!(decoded.timestamp, 789);
-        assert_eq!(decoded.operation, 1);
-        assert_eq!(decoded.data, br#"{"id":2}"#);
-        Ok(())
-    }
-
-    fn test_schema() -> ModelSchema {
-        ModelSchema {
-            fields: vec![
-                field("id", "u64"),
-                field("email", "string"),
-                field("hash_password", "string"),
-                field("created_at", "u64"),
-            ],
-        }
-    }
-
-    fn field(name: &str, field_type: &str) -> ModelField {
-        ModelField {
-            name: name.to_string(),
-            field_type: field_type.to_string(),
-            required: true,
-            indexed: false,
-        }
-    }
 }
