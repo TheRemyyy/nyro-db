@@ -1,17 +1,14 @@
 use dashmap::DashMap;
-use serde_json::Value;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::Semaphore;
 
 use crate::config::{ModelSchema, NyroConfig};
-use crate::models::LogEntry;
 use crate::storage::LogStorage;
 use crate::utils::metrics::Metrics;
 
 pub struct NyroDB {
     pub(crate) runtimes: Arc<DashMap<String, Arc<ModelRuntime>>>,
-    pub(crate) batch_sender: mpsc::Sender<BatchOperation>,
     pub(crate) metrics: Arc<Metrics>,
     pub(crate) shutdown_flag: Arc<AtomicBool>,
     pub(crate) config: NyroConfig,
@@ -22,12 +19,4 @@ pub struct NyroDB {
 pub(crate) struct ModelRuntime {
     pub(crate) schema: Arc<ModelSchema>,
     pub(crate) storage: Arc<LogStorage>,
-}
-
-pub(crate) enum BatchOperation {
-    Insert {
-        storage: Arc<LogStorage>,
-        entry: LogEntry<Value>,
-        committed: oneshot::Sender<Result<(), String>>,
-    },
 }

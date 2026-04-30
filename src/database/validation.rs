@@ -24,6 +24,15 @@ pub(crate) fn filter_data_owned(
     schema: &ModelSchema,
     mut obj: Map<String, Value>,
 ) -> Map<String, Value> {
+    if obj.len() == schema.fields.len()
+        && schema
+            .fields
+            .iter()
+            .all(|field| obj.contains_key(&field.name))
+    {
+        return obj;
+    }
+
     let mut filtered = Map::with_capacity(schema.fields.len());
     for field in &schema.fields {
         if let Some(value) = obj.remove(&field.name) {

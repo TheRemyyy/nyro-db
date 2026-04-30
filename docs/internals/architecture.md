@@ -1,26 +1,25 @@
 # Architecture Internals
 
-NyroDB achieves its performance through a combination of zero-copy memory mapping, append-only logging, and lock-free concurrency patterns.
+NyroDB achieves its performance through append-only logging, memory-backed primary indexes, and explicit bulk ingestion.
 
 ## 1. Storage Engine (`LogStorage`)
 
-The core storage unit is an append-only log file backed by `mmap`.
+The core storage unit is an append-only log file with an in-memory read cache.
 
-### Zero-Copy Serialization
+### Compact Log Encoding
 
-Unlike traditional databases that copy data from kernel space -> user buffer -> parsing struct -> application object, NyroDB maps the disk file directly into the process's virtual memory address space.
-
-- **Bincode**: Data is serialized using `bincode`, a compact binary format that rivals raw C structs in speed.
-- **Reads**: Reading a record involves computing its offset and casting a raw pointer to a byte slice, which is then deserialized. This avoids multiple copies.
+- **Writes**: New records use a compact fixed header followed by JSON payload bytes.
+- **Reads**: Hot reads use the primary index cache, avoiding disk IO for recently loaded or inserted rows.
+- **Compatibility**: Legacy bincode log entries are still decoded during reads and index rebuilds.
 
 ## 2. Indexing Strategy
 
 ### Primary Index
 
-A `DashMap` (concurrent hash map) maps `id` (u64) -> `file_offset` (u64).
+A dense vector-backed index handles normal sequential `u64` IDs, with a sparse `DashMap` fallback for very large or non-dense IDs.
 
 - **Lookup**: O(1).
-- **Concurrency**: Lock-free reads, striped locking for writes.
+- **Concurrency**: Dense IDs use short `parking_lot` lock sections; sparse IDs use `DashMap`.
 
 ### Secondary Indexing
 
@@ -29,19 +28,16 @@ NyroDB maintains in-memory `DashMap<field_value, Vec<id>>` for fields indexed in
 - **Query**: Instant lookup returning a list of primary IDs.
 - **Updates**: Asynchronous maintenance during insert.
 
-## 3. Asynchronous Batching
+## 3. Ingestion Paths
 
-To overcome the latency of individual syscalls (fsync), writes are grouped.
+NyroDB exposes separate paths for single-row latency and high-throughput ingestion.
 
-1. `INSERT` requests are pushed to a `mmap::UnboundedChannel`.
-2. A background `tokio` task drains the channel into a buffer.
-3. Once `batch_size` (default 10k) is reached OR `batch_timeout` (100ms) expires:
-   - The batch is serialized into a single binary blob.
-   - A single `write` syscall appends to the file.
-   - `fsync` can be deferred based on `sync_interval`.
+- **Single insert**: Writes directly to the storage writer and returns after the row is indexed.
+- **insert_many**: Prepares rows in parallel and appends the batch in one writer pass.
+- **Durability**: `sync_interval = 0` calls `sync_data` on each append; higher values use buffered throughput and periodic sync.
 
 ## 4. Concurrency Model
 
 - **Tokio Runtime**: Powered by Rust's async/await.
-- **Actor-like Design**: The Database struct acts as a supervisor, spawning tasks for batching, metrics reporting, and WebSocket broadcasting.
+- **Direct Writer Path**: Single inserts avoid per-row channel and oneshot acknowledgement overhead.
 - **Semaphore**: A global semaphore limits `max_concurrent_ops` (default 100k) to prevent OOM (Out Of Memory) under extreme load.

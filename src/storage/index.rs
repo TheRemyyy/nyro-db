@@ -3,6 +3,7 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 
 const DENSE_GROWTH_SLACK: u64 = 1_000_000;
+const DENSE_RESIZE_CHUNK: usize = 8192;
 
 #[derive(Clone, Copy)]
 pub(crate) struct EntryLocation {
@@ -42,21 +43,25 @@ impl PrimaryIndex {
     }
 
     pub(crate) fn insert(&self, id: u64, entry: IndexedEntry) {
-        let dense_len = self.dense.read().len() as u64;
+        let mut dense = self.dense.write();
+        let dense_len = dense.len() as u64;
         if id <= dense_len.saturating_add(DENSE_GROWTH_SLACK) {
             let Ok(index) = usize::try_from(id) else {
+                drop(dense);
                 self.sparse.insert(id, entry);
                 return;
             };
-            let mut dense = self.dense.write();
             if index >= dense.len() {
-                dense.resize_with(index + 1, || None);
+                let next_len = (index + 1).saturating_add(DENSE_RESIZE_CHUNK);
+                dense.resize_with(next_len, || None);
             }
             dense[index] = Some(entry);
+            drop(dense);
             self.sparse.remove(&id);
             return;
         }
 
+        drop(dense);
         self.sparse.insert(id, entry);
     }
 

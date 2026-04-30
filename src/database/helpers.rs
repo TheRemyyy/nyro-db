@@ -27,14 +27,6 @@ pub(crate) fn current_unix_millis() -> Result<u64> {
         .map_err(|_| anyhow::anyhow!("Current UNIX timestamp does not fit into u64 millis"))
 }
 
-pub(crate) fn entry_id(entry: &LogEntry<Value>) -> Result<u64> {
-    entry
-        .data
-        .get("id")
-        .and_then(|value| value.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing or invalid 'id' field"))
-}
-
 pub(crate) fn publish_insert_event(
     real_time_tx: &tokio::sync::broadcast::Sender<String>,
     log_config: &LoggingConfig,

@@ -18,7 +18,7 @@ NyroDB is distributed as a high-performance binary compiled from Rust source.
     ```
 
 2. **Build in Release Mode**:
-    > **Note**: Always build with `--release`. Debug builds include runtime overhead that significantly impacts the zero-copy optimizations.
+    > **Note**: Always build with `--release`. Debug builds include runtime overhead that significantly impacts database throughput.
 
     ```bash
     cargo build --release

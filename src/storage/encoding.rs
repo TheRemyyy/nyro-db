@@ -104,6 +104,13 @@ pub(crate) fn operation_from_u8(operation: u8) -> Result<Operation> {
 
 fn build_index_data(data: &Value, indexed_fields: &HashSet<String>) -> Option<IndexData> {
     let id = data.get("id").and_then(|value| value.as_u64())?;
+    if indexed_fields.is_empty() {
+        return Some(IndexData {
+            id,
+            fields: Vec::new(),
+        });
+    }
+
     let fields = data
         .as_object()
         .map(|object| {

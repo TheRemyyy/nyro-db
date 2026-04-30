@@ -8,7 +8,7 @@
 [![Rust Version](https://img.shields.io/badge/Rust-1.75+-brown?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Ops/Sec](https://img.shields.io/badge/Performance-1M%20ops%2Fsec-blueviolet?style=flat-square)](https://github.com/TheRemyyy/nyro-db)
 
-*A hyper-performant, zero-copy, real-time database engine designed for extreme throughput and universal versatility.*
+*A hyper-performant, real-time database engine designed for extreme throughput and universal versatility.*
 
 [Features](#features) • [Installation](#installation) • [Documentation](#documentation) • [API Guide](#api-guide) • [Configuration](#configuration)
 
@@ -18,7 +18,7 @@
 
 ## Overview
 
-NyroDB is a next-generation database engine built from the ground up in Rust. It utilizes **Zero-Copy Serialization (Bincode)**, **Asynchronous Batching**, and **Secondary Indexing** to achieve performance that transcends modern understanding. Whether you're building a real-time messaging app, a high-frequency trading platform, or a secure authentication system, NyroDB provides the speed and flexibility you need.
+NyroDB is a next-generation database engine built from the ground up in Rust. It uses compact append-only logging, a dense primary index, explicit `insert_many` ingestion, and secondary indexing for high-throughput workloads. Whether you're building a real-time messaging app, a high-frequency trading platform, or a secure authentication system, NyroDB provides the speed and flexibility you need.
 
 ### Key Features
 
@@ -26,7 +26,7 @@ NyroDB is a next-generation database engine built from the ground up in Rust. It
 - **🧠 Universal Querying** — O(1) secondary indexing on any field. Query by custom metadata instantly.
 - **🌐 Real-Time Native** — Built-in WebSocket server for instant data streaming and pub/sub notifications.
 - **🛡️ Secure by Design** — Native API Key authentication and schema validation for production-grade safety.
-- **🚀 Zero-Copy Storage** — Optimized disk persistence using memory-mapped files and ultra-fast serialization.
+- **🚀 Fast Append Storage** — Compact disk persistence with memory-backed indexes and cached hot reads.
 - **📊 Real-Time Metrics** — Detailed performance monitoring including throughput windows and p99 latency stats.
 
 ## <a id="installation"></a>📦 Installation
@@ -78,7 +78,7 @@ enable_auth = true
 api_key = "your_secret_key"
 
 [performance]
-batch_size = 10000
+batch_size = 10000 # Recommended insert_many chunk size
 max_concurrent_ops = 100000
 ```
 

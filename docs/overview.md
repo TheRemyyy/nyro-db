@@ -1,13 +1,13 @@
 # Introduction to NyroDB
 
-**NyroDB** is a hyper-performant, zero-copy, real-time database engine built from the ground up in Rust. Designed for extreme throughput and universality, it bridges the gap between in-memory caches and persistent storage solutions.
+**NyroDB** is a hyper-performant, real-time database engine built from the ground up in Rust. Designed for extreme throughput and universality, it bridges the gap between in-memory caches and persistent storage solutions.
 
 ## Core Philosophy
 
 NyroDB was built to solve specific bottlenecks in modern systems programming:
 
-1. **Serialization Overhead**: Traditional DBs waste cycles parsing/serializing JSON. NyroDB uses zero-copy **Bincode** serialization.
-2. **Latency**: By utilizing memory-mapped files (`mmap`) and asynchronous batching, operations complete in sub-microsecond windows.
+1. **Serialization Overhead**: Traditional DBs waste cycles wrapping row payloads. NyroDB writes a compact fixed header followed by JSON payload bytes.
+2. **Latency**: Single inserts use a direct writer path, while `insert_many` provides explicit high-throughput ingestion.
 3. **Real-Time Needs**: Most apps need external message queues (Redis/Kafka) for updates. NyroDB has a native **WebSocket** layer for instant pub/sub.
 
 ## Key Features
@@ -17,9 +17,9 @@ NyroDB was built to solve specific bottlenecks in modern systems programming:
 - **Real-Time Native**: Built-in WebSocket server pushes `INSERT` and updates to connected clients immediately.
 - **Production Ready**:
   - **Security**: Native API Key authentication.
-  - **Persistence**: ACID-compliant (Atomic batch writes) disk persistence.
+  - **Persistence**: Append-only disk persistence with configurable `sync_data` durability.
   - **Recovery**: Automatic crash recovery from WAL (Write-Ahead Log) or memory maps.
-- **Zero-Copy Storage**: Data is mapped directly from disk to memory, avoiding userspace buffer copies.
+- **Fast Append Storage**: Data is appended to compact log files and served from memory-backed indexes.
 - **Observability**: Built-in `/metrics` endpoint for monitoring throughput and latency in real-time.
 
 ## Use Cases

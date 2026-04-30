@@ -14,8 +14,8 @@ enable_mmap = true
 sync_interval = 1000
 
 [performance]
-batch_size = 10000
-batch_timeout = 20
+batch_size = 10000 # Recommended insert_many chunk size
+batch_timeout = 20 # Reserved for compatibility
 max_concurrent_ops = 100000
 
 [logging]

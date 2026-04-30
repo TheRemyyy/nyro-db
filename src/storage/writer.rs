@@ -13,7 +13,8 @@ const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
 
 impl LogStorage {
     pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
-        self.append_many(&[entry])
+        let encoded_entry = encoding::encode_entry(entry, &self.indexed_fields)?;
+        self.append_encoded_entry(encoded_entry)
     }
 
     pub fn append_entries(&self, entries: &[LogEntry<Value>]) -> Result<()> {
@@ -35,10 +36,7 @@ impl LogStorage {
     }
 
     fn append_encoded_entries(&self, encoded_entries: Vec<EncodedEntry>) -> Result<()> {
-        let mut file = self
-            .file
-            .write()
-            .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
+        let mut file = self.file.write();
         let mut offset = self
             .current_offset
             .load(std::sync::atomic::Ordering::Acquire);
@@ -62,6 +60,29 @@ impl LogStorage {
         self.current_offset
             .store(offset, std::sync::atomic::Ordering::SeqCst);
 
+        Ok(())
+    }
+
+    fn append_encoded_entry(&self, encoded_entry: EncodedEntry) -> Result<()> {
+        let mut file = self.file.write();
+        let offset = self
+            .current_offset
+            .load(std::sync::atomic::Ordering::Acquire);
+        let entry_size = encoded_entry.size;
+
+        file.write_all(&entry_size.to_le_bytes())?;
+        file.write_all(&encoded_entry.data)?;
+        if self.sync_on_append {
+            file.flush()?;
+            file.get_ref().sync_data()?;
+        }
+        self.current_offset.store(
+            offset + 4 + entry_size as u64,
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        drop(file);
+
+        self.insert_indexes(offset, &encoded_entry);
         Ok(())
     }
 

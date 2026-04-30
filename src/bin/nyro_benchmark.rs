@@ -51,8 +51,9 @@ struct BenchmarkReport {
     bulk_chunk_size: u64,
     concurrency: usize,
     read_concurrency: usize,
-    batch_size: usize,
-    batch_timeout_ms: u64,
+    single_insert_mode: &'static str,
+    configured_batch_size: usize,
+    configured_batch_timeout_ms: u64,
     storage_mode: &'static str,
     storage_sync_interval_ms: u64,
     environment: EnvironmentReport,
@@ -109,8 +110,9 @@ async fn main() -> Result<()> {
         bulk_chunk_size: BULK_CHUNK_SIZE,
         concurrency: CONCURRENCY,
         read_concurrency: READ_CONCURRENCY,
-        batch_size: BATCH_SIZE,
-        batch_timeout_ms: BATCH_TIMEOUT_MS,
+        single_insert_mode: "direct_writer",
+        configured_batch_size: BATCH_SIZE,
+        configured_batch_timeout_ms: BATCH_TIMEOUT_MS,
         storage_mode: STORAGE_MODE,
         storage_sync_interval_ms: STORAGE_SYNC_INTERVAL_MS,
         environment: environment_report(),
@@ -136,7 +138,6 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     let (successful_inserts, failed_inserts, insert_workers) =
         run_insert_workers(db.clone(), insert_rows, CONCURRENCY).await;
     let insert_duration = insert_start.elapsed();
-    let insert_log_file_bytes = log_file_size(&data_dir, "user");
 
     let get_start = Instant::now();
     let (successful_gets, failed_gets, get_workers) =
@@ -144,6 +145,7 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     let get_duration = get_start.elapsed();
 
     db.shutdown().await?;
+    let insert_log_file_bytes = log_file_size(&data_dir, "user");
     cleanup_path(&data_dir)?;
     let chunked_db = Arc::new(NyroDB::new(benchmark_config(&data_dir)));
     let chunked_rows = build_rows("chunked", iteration, CHUNKED_OPERATIONS_PER_ITERATION, 0);
@@ -151,8 +153,8 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     let (successful_chunked_inserts, failed_chunked_inserts, chunked_workers) =
         run_chunked_inserts(chunked_db.clone(), chunked_rows, CHUNKED_INSERT_CHUNK_SIZE).await;
     let chunked_insert_duration = chunked_start.elapsed();
-    let chunked_log_file_bytes = log_file_size(&data_dir, "user");
     chunked_db.shutdown().await?;
+    let chunked_log_file_bytes = log_file_size(&data_dir, "user");
     cleanup_path(&data_dir)?;
 
     let bulk_db = Arc::new(NyroDB::new(benchmark_config(&data_dir)));
@@ -161,8 +163,8 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     let (successful_bulk_inserts, failed_bulk_inserts, bulk_workers) =
         run_chunked_inserts(bulk_db.clone(), bulk_rows, BULK_CHUNK_SIZE).await;
     let bulk_insert_duration = bulk_start.elapsed();
-    let bulk_log_file_bytes = log_file_size(&data_dir, "user");
     bulk_db.shutdown().await?;
+    let bulk_log_file_bytes = log_file_size(&data_dir, "user");
 
     cleanup_path(&data_dir)?;
 

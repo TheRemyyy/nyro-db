@@ -6,11 +6,12 @@ mod writer;
 use anyhow::Result;
 use index::{IndexedEntry, PrimaryIndex};
 use memmap2::MmapOptions;
+use parking_lot::RwLock;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use std::{
     fs::{File, OpenOptions},
@@ -26,7 +27,6 @@ use encoding::{decode_raw_entry, operation_from_u8};
 use std::sync::atomic::AtomicU64;
 
 pub struct LogStorage {
-    model_name: Arc<str>,
     file: Arc<RwLock<BufWriter<File>>>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
@@ -69,7 +69,6 @@ impl LogStorage {
         let writer = BufWriter::with_capacity(config.buffer_size, file);
 
         let mut storage = Self {
-            model_name: Arc::from(model_name),
             file: Arc::new(RwLock::new(writer)),
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
@@ -102,14 +101,13 @@ impl LogStorage {
                     let Some(file_clone) = file_ref.upgrade() else {
                         break;
                     };
-                    if let Ok(mut writer) = file_clone.write() {
-                        if let Err(e) = writer.flush().and_then(|_| writer.get_ref().sync_data()) {
-                            Logger::error_with_config(
-                                &sync_log_config,
-                                &format!("Failed to flush storage buffer: {}", e),
-                            );
-                        }
-                    };
+                    let mut writer = file_clone.write();
+                    if let Err(e) = writer.flush().and_then(|_| writer.get_ref().sync_data()) {
+                        Logger::error_with_config(
+                            &sync_log_config,
+                            &format!("Failed to flush storage buffer: {}", e),
+                        );
+                    }
                 }
             });
         }
@@ -133,10 +131,7 @@ impl LogStorage {
     }
 
     pub fn shutdown(&self, log_config: &LoggingConfig) -> Result<()> {
-        let mut file = self
-            .file
-            .write()
-            .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
+        let mut file = self.file.write();
         file.flush()?;
         file.get_ref().sync_data()?;
         Logger::info_with_config(
@@ -144,10 +139,6 @@ impl LogStorage {
             &format!("Flushed pending writes for {}", self.file_path),
         );
         Ok(())
-    }
-
-    pub(crate) fn model_name(&self) -> &str {
-        &self.model_name
     }
 
     fn setup_mmap(&mut self) -> Result<()> {

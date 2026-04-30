@@ -5,10 +5,8 @@ use crate::config::NyroConfig;
 use crate::database::NyroDB;
 
 #[tokio::test]
-async fn batched_insert_is_committed_before_returning() -> anyhow::Result<()> {
-    let mut config = test_config("batched_commit");
-    config.performance.batch_size = 10;
-    config.performance.batch_timeout = 1;
+async fn insert_is_committed_before_returning() -> anyhow::Result<()> {
+    let config = test_config("insert_commit");
     cleanup_path(&config.storage.data_dir)?;
 
     let db = NyroDB::new(config.clone());
@@ -92,9 +90,7 @@ async fn storage_initialization_error_is_returned() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn concurrent_first_inserts_keep_one_readable_storage() -> anyhow::Result<()> {
-    let mut config = test_config("concurrent_storage_init");
-    config.performance.batch_size = 32;
-    config.performance.batch_timeout = 1;
+    let config = test_config("concurrent_storage_init");
     cleanup_path(&config.storage.data_dir)?;
 
     let db = Arc::new(NyroDB::new(config.clone()));

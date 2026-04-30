@@ -20,8 +20,8 @@ sync_interval = 1000     # Sync to disk every 1000ms
 
 # Performance tuning
 [performance]
-batch_size = 10000        # Max items per batch write
-batch_timeout = 100       # Max ms to wait for batch fill
+batch_size = 10000        # Recommended client chunk size for insert_many
+batch_timeout = 100       # Reserved for compatibility
 max_concurrent_ops = 50000
 
 # Logging configuration
@@ -67,13 +67,13 @@ fields = [
 
 ### `[storage]`
 
-- **enable_mmap**: If `true`, uses OS-level memory mapping. This allows the DB to access data at RAM speeds without copying it into user-space buffers (Zero-Copy).
+- **enable_mmap**: If `true`, memory maps existing log files for fallback reads; hot reads are served from the in-memory index cache.
 - **sync_interval**: How often (in ms) to force flush data to disk. Lower = safer, Higher = faster.
 
 ### `[performance]`
 
-- **batch_size**: Number of `INSERT` operations to group into a single atomic write.
-- **batch_timeout**: If the batch isn't full, write anyway after this many milliseconds.
+- **batch_size**: Recommended chunk size for clients using `insert_many`.
+- **batch_timeout**: Reserved for configuration compatibility.
 
 ### `[security]`
 
