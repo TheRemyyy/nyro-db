@@ -40,7 +40,22 @@ pub(crate) fn field_codecs_from_schema(schema: &ModelSchema) -> Vec<FieldCodec> 
         .collect()
 }
 
+#[cfg(test)]
 pub(crate) fn encode_typed_payload(data: &Value, field_codecs: &[FieldCodec]) -> Option<Vec<u8>> {
+    encode_payload::<false>(data, field_codecs)
+}
+
+pub(crate) fn encode_compact_typed_payload(
+    data: &Value,
+    field_codecs: &[FieldCodec],
+) -> Option<Vec<u8>> {
+    encode_payload::<true>(data, field_codecs)
+}
+
+fn encode_payload<const COMPACT_STRINGS: bool>(
+    data: &Value,
+    field_codecs: &[FieldCodec],
+) -> Option<Vec<u8>> {
     let object = data.as_object()?;
     if object.len() != field_codecs.len() {
         return None;
@@ -52,8 +67,13 @@ pub(crate) fn encode_typed_payload(data: &Value, field_codecs: &[FieldCodec]) ->
         match field.field_type {
             FieldType::String => {
                 let bytes = value.as_str()?.as_bytes();
-                let len = u32::try_from(bytes.len()).ok()?;
-                payload.extend_from_slice(&len.to_le_bytes());
+                if COMPACT_STRINGS {
+                    let len = u16::try_from(bytes.len()).ok()?;
+                    payload.extend_from_slice(&len.to_le_bytes());
+                } else {
+                    let len = u32::try_from(bytes.len()).ok()?;
+                    payload.extend_from_slice(&len.to_le_bytes());
+                }
                 payload.extend_from_slice(bytes);
             }
             FieldType::Bool => payload.push(u8::from(value.as_bool()?)),
@@ -72,13 +92,31 @@ pub(crate) fn encode_typed_payload(data: &Value, field_codecs: &[FieldCodec]) ->
 }
 
 pub(crate) fn decode_typed_payload(data: &[u8], field_codecs: &[FieldCodec]) -> Result<Vec<u8>> {
+    decode_payload::<false>(data, field_codecs)
+}
+
+pub(crate) fn decode_compact_typed_payload(
+    data: &[u8],
+    field_codecs: &[FieldCodec],
+) -> Result<Vec<u8>> {
+    decode_payload::<true>(data, field_codecs)
+}
+
+fn decode_payload<const COMPACT_STRINGS: bool>(
+    data: &[u8],
+    field_codecs: &[FieldCodec],
+) -> Result<Vec<u8>> {
     let mut cursor = 0;
     let mut object = Map::with_capacity(field_codecs.len());
 
     for field in field_codecs {
         let value = match field.field_type {
             FieldType::String => {
-                let len = read_u32(data, &mut cursor)? as usize;
+                let len = if COMPACT_STRINGS {
+                    read_u16(data, &mut cursor)? as usize
+                } else {
+                    read_u32(data, &mut cursor)? as usize
+                };
                 let bytes = read_bytes(data, &mut cursor, len)?;
                 Value::String(std::str::from_utf8(bytes)?.to_string())
             }
@@ -107,6 +145,10 @@ fn read_u8(data: &[u8], cursor: &mut usize) -> Result<u8> {
 
 fn read_u32(data: &[u8], cursor: &mut usize) -> Result<u32> {
     Ok(u32::from_le_bytes(read_array(data, cursor)?))
+}
+
+fn read_u16(data: &[u8], cursor: &mut usize) -> Result<u16> {
+    Ok(u16::from_le_bytes(read_array(data, cursor)?))
 }
 
 fn read_u64(data: &[u8], cursor: &mut usize) -> Result<u64> {

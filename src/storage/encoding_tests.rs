@@ -1,5 +1,8 @@
-use super::encoding::{decode_raw_entry, encode_json_raw_entry, encode_typed_raw_entry, RawEntry};
-use super::typed::{encode_typed_payload, field_codecs_from_schema};
+use super::encoding::{
+    decode_raw_entry, encode_compact_typed_raw_entry, encode_json_raw_entry,
+    encode_typed_raw_entry, RawEntry,
+};
+use super::typed::{encode_compact_typed_payload, encode_typed_payload, field_codecs_from_schema};
 use crate::config::{ModelField, ModelSchema};
 use serde_json::{json, Value};
 
@@ -30,6 +33,27 @@ fn decodes_typed_raw_entry_format() -> anyhow::Result<()> {
     let decoded_value: Value = serde_json::from_slice(&decoded.data)?;
 
     assert_eq!(decoded.timestamp, 456);
+    assert_eq!(decoded.operation, 0);
+    assert_eq!(decoded_value, value);
+    Ok(())
+}
+
+#[test]
+fn decodes_compact_typed_raw_entry_format() -> anyhow::Result<()> {
+    let codecs = field_codecs_from_schema(&test_schema());
+    let value = json!({
+        "id": 8,
+        "email": "compact@nyro.local",
+        "hash_password": "hash_8",
+        "created_at": 100
+    });
+    let payload = encode_compact_typed_payload(&value, &codecs)
+        .ok_or_else(|| anyhow::anyhow!("expected compact typed payload"))?;
+    let encoded = encode_compact_typed_raw_entry(457, 0, &payload);
+    let decoded = decode_raw_entry(&encoded, &codecs)?;
+    let decoded_value: Value = serde_json::from_slice(&decoded.data)?;
+
+    assert_eq!(decoded.timestamp, 457);
     assert_eq!(decoded.operation, 0);
     assert_eq!(decoded_value, value);
     Ok(())

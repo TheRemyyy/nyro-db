@@ -6,10 +6,13 @@ use std::sync::Arc;
 
 use crate::models::{LogEntry, Operation};
 use crate::storage::index::{CachedData, CachedEntry};
-use crate::storage::typed::{decode_typed_payload, encode_typed_payload, FieldCodec};
+use crate::storage::typed::{
+    decode_compact_typed_payload, decode_typed_payload, encode_compact_typed_payload, FieldCodec,
+};
 
 const JSON_ENTRY_MAGIC: &[u8; 4] = b"NYR1";
 const TYPED_ENTRY_MAGIC: &[u8; 4] = b"NYR2";
+const COMPACT_TYPED_ENTRY_MAGIC: &[u8; 4] = b"NYR3";
 const JSON_HEADER_SIZE: usize = JSON_ENTRY_MAGIC.len() + 8 + 1;
 const TYPED_HEADER_SIZE: usize = TYPED_ENTRY_MAGIC.len() + 8 + 1;
 
@@ -124,14 +127,14 @@ fn encode_entry_core(
     field_codecs: &[FieldCodec],
     needs_json_cache: bool,
 ) -> Result<EncodedCore> {
-    let typed_payload = encode_typed_payload(entry_data, field_codecs);
+    let typed_payload = encode_compact_typed_payload(entry_data, field_codecs);
     let json_data = if needs_json_cache || typed_payload.is_none() {
         Some(serde_json::to_vec(entry_data)?)
     } else {
         None
     };
     let data = if let Some(payload) = typed_payload {
-        encode_typed_raw_entry(timestamp, operation, &payload)
+        encode_compact_typed_raw_entry(timestamp, operation, &payload)
     } else {
         let json = json_data
             .as_deref()
@@ -156,6 +159,9 @@ pub(crate) fn decode_raw_entry(data: &[u8], field_codecs: &[FieldCodec]) -> Resu
     if data.starts_with(TYPED_ENTRY_MAGIC) {
         return decode_typed_raw_entry(data, field_codecs);
     }
+    if data.starts_with(COMPACT_TYPED_ENTRY_MAGIC) {
+        return decode_compact_typed_raw_entry(data, field_codecs);
+    }
     bincode::deserialize(data).map_err(Into::into)
 }
 
@@ -168,9 +174,23 @@ pub(super) fn encode_json_raw_entry(timestamp: u64, operation: u8, json_data: &[
     data
 }
 
+#[cfg(test)]
 pub(super) fn encode_typed_raw_entry(timestamp: u64, operation: u8, payload: &[u8]) -> Vec<u8> {
     let mut data = Vec::with_capacity(TYPED_HEADER_SIZE + payload.len());
     data.extend_from_slice(TYPED_ENTRY_MAGIC);
+    data.extend_from_slice(&timestamp.to_le_bytes());
+    data.push(operation);
+    data.extend_from_slice(payload);
+    data
+}
+
+pub(super) fn encode_compact_typed_raw_entry(
+    timestamp: u64,
+    operation: u8,
+    payload: &[u8],
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(TYPED_HEADER_SIZE + payload.len());
+    data.extend_from_slice(COMPACT_TYPED_ENTRY_MAGIC);
     data.extend_from_slice(&timestamp.to_le_bytes());
     data.push(operation);
     data.extend_from_slice(payload);
@@ -189,6 +209,16 @@ fn decode_json_raw_entry(data: &[u8]) -> Result<RawEntry> {
 fn decode_typed_raw_entry(data: &[u8], field_codecs: &[FieldCodec]) -> Result<RawEntry> {
     let (timestamp, operation) = decode_header(data, TYPED_HEADER_SIZE)?;
     let json_data = decode_typed_payload(&data[TYPED_HEADER_SIZE..], field_codecs)?;
+    Ok(RawEntry {
+        timestamp,
+        operation,
+        data: json_data,
+    })
+}
+
+fn decode_compact_typed_raw_entry(data: &[u8], field_codecs: &[FieldCodec]) -> Result<RawEntry> {
+    let (timestamp, operation) = decode_header(data, TYPED_HEADER_SIZE)?;
+    let json_data = decode_compact_typed_payload(&data[TYPED_HEADER_SIZE..], field_codecs)?;
     Ok(RawEntry {
         timestamp,
         operation,
