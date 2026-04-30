@@ -23,7 +23,7 @@ use crate::utils::logger::Logger;
 use crate::utils::metrics::{Metrics, MetricsReport};
 use helpers::{current_unix_millis, field_matches, finish_bulk_insert, publish_insert_event};
 
-const PARALLEL_PREPARE_THRESHOLD: usize = 2_048;
+const PARALLEL_PREPARE_THRESHOLD: usize = 16_384;
 
 impl NyroDB {
     pub fn new(config: NyroConfig) -> Self {
