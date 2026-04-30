@@ -3,7 +3,9 @@ use serde_json::Value;
 use std::io::Read;
 use std::path::Path;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
+use crate::storage::index::{CachedEntry, EntryLocation, IndexedEntry};
 use crate::storage::{LogStorage, RawEntry};
 
 impl LogStorage {
@@ -41,7 +43,17 @@ impl LogStorage {
         let raw_entry: RawEntry = bincode::deserialize(&buffer)?;
         let data: Value = serde_json::from_slice(&raw_entry.data)?;
         if let Some(id) = data.get("id").and_then(|value| value.as_u64()) {
-            self.index.insert(id, (offset, size));
+            self.index.insert(
+                id,
+                IndexedEntry {
+                    location: EntryLocation { offset, size },
+                    cache: CachedEntry {
+                        timestamp: raw_entry.timestamp,
+                        operation: raw_entry.operation,
+                        data: Arc::from(raw_entry.data),
+                    },
+                },
+            );
             self.rebuild_secondary_indexes(id, &data);
         }
 

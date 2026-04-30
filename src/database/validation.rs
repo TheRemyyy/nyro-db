@@ -1,18 +1,12 @@
 use anyhow::Result;
 use serde_json::{Map, Value};
 
-use crate::config::{ModelField, ModelSchema, NyroConfig};
+use crate::config::{ModelField, ModelSchema};
 
-pub(crate) fn validate_data(
-    config: &NyroConfig,
-    model_name: &str,
+pub(crate) fn validate_data_with_schema(
+    schema: &ModelSchema,
     obj: &Map<String, Value>,
 ) -> Result<()> {
-    let schema = config
-        .models
-        .get(model_name)
-        .ok_or_else(|| anyhow::anyhow!("Model '{}' not defined in configuration", model_name))?;
-
     for field in &schema.fields {
         match obj.get(&field.name) {
             Some(value) => validate_field_value(field, value)?,

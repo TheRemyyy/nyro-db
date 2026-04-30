@@ -1,23 +1,21 @@
 use anyhow::Result;
-use futures_util::{stream::FuturesUnordered, StreamExt};
 use nyrodb::config::NyroConfig;
 use nyrodb::database::NyroDB;
 use nyrodb::utils::benchmark::{benchmark_data_dir, cleanup_path, rate, stats, Stats};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
 const WARMUP_ITERATIONS: usize = 1;
 const MEASURED_ITERATIONS: usize = 5;
-const OPERATIONS_PER_ITERATION: u64 = 50_000;
+const OPERATIONS_PER_ITERATION: u64 = 100_000;
 const BULK_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
-const BULK_CHUNK_SIZE: u64 = 50_000;
+const BULK_CHUNK_SIZE: u64 = 1_000_000;
 const CONCURRENCY: usize = 1_024;
 const READ_CONCURRENCY: usize = 256;
-const BATCH_SIZE: usize = 1_000;
-const BATCH_TIMEOUT_MS: u64 = 1;
+const BATCH_SIZE: usize = 1_024;
+const BATCH_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Serialize)]
 struct IterationReport {
@@ -141,50 +139,55 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
 }
 
 async fn run_inserts(db: Arc<NyroDB>, rows: Vec<Value>) -> (u64, u64) {
-    let mut rows = VecDeque::from(rows);
-    let mut running = FuturesUnordered::new();
+    let partitions = partition_rows(rows, CONCURRENCY);
+    let mut workers = Vec::with_capacity(CONCURRENCY);
+
+    for partition in partitions {
+        let db_clone = Arc::clone(&db);
+        workers.push(tokio::spawn(async move {
+            let mut successful = 0;
+            let mut failed = 0;
+
+            for row in partition {
+                match db_clone.insert_raw("user", row).await {
+                    Ok(_) => successful += 1,
+                    Err(_) => failed += 1,
+                }
+            }
+
+            (successful, failed)
+        }));
+    }
+
+    collect_worker_counts(workers).await
+}
+
+async fn collect_worker_counts(workers: Vec<tokio::task::JoinHandle<(u64, u64)>>) -> (u64, u64) {
     let mut successful = 0;
     let mut failed = 0;
 
-    loop {
-        while !rows.is_empty() && running.len() < CONCURRENCY {
-            let Some(row) = rows.pop_front() else {
-                break;
-            };
-            let db_clone = db.clone();
-            running.push(tokio::spawn(async move {
-                db_clone.insert_raw("user", row).await
-            }));
-        }
-
-        if running.is_empty() {
-            break;
-        }
-
-        match running.next().await {
-            Some(Ok(Ok(_))) => successful += 1,
-            Some(_) => failed += 1,
-            None => break,
+    for worker in workers {
+        match worker.await {
+            Ok((worker_successful, worker_failed)) => {
+                successful += worker_successful;
+                failed += worker_failed;
+            }
+            Err(_) => failed += 1,
         }
     }
 
     (successful, failed)
 }
 
-async fn run_bulk_inserts(db: Arc<NyroDB>, rows: Vec<Value>) -> (u64, u64) {
-    let mut rows = VecDeque::from(rows);
+async fn run_bulk_inserts(db: Arc<NyroDB>, mut rows: Vec<Value>) -> (u64, u64) {
     let mut successful = 0;
     let mut failed = 0;
 
     while !rows.is_empty() {
-        let chunk_size = (rows.len() as u64).min(BULK_CHUNK_SIZE);
-        let mut chunk = Vec::with_capacity(chunk_size as usize);
-
-        for _ in 0..chunk_size {
-            if let Some(row) = rows.pop_front() {
-                chunk.push(row);
-            }
-        }
+        let take_count = (BULK_CHUNK_SIZE as usize).min(rows.len());
+        let remaining = rows.split_off(take_count);
+        let chunk = std::mem::replace(&mut rows, remaining);
+        let chunk_size = chunk.len() as u64;
 
         match db.insert_many_raw("user", chunk).await {
             Ok(ids) => successful += ids.len() as u64,
@@ -210,41 +213,56 @@ fn build_rows(prefix: &str, iteration: usize, count: u64, start_id: u64) -> Vec<
 }
 
 async fn run_gets(db: Arc<NyroDB>) -> (u64, u64) {
-    let mut next_id = 0;
-    let mut running = FuturesUnordered::new();
-    let mut successful = 0;
-    let mut failed = 0;
+    let ranges = partition_ranges(OPERATIONS_PER_ITERATION, READ_CONCURRENCY);
+    let mut workers = Vec::with_capacity(READ_CONCURRENCY);
 
-    loop {
-        while next_id < OPERATIONS_PER_ITERATION && running.len() < READ_CONCURRENCY {
-            let id = next_id;
-            let db_clone = db.clone();
-            running.push(tokio::spawn(
-                async move { db_clone.get_raw("user", id).await },
-            ));
-            next_id += 1;
-        }
+    for (start_id, end_id) in ranges {
+        let db_clone = Arc::clone(&db);
+        workers.push(tokio::spawn(async move {
+            let mut successful = 0;
+            let mut failed = 0;
 
-        if running.is_empty() {
-            break;
-        }
+            for id in start_id..end_id {
+                match db_clone.get_raw("user", id).await {
+                    Ok(Some(_)) => successful += 1,
+                    Ok(None) | Err(_) => failed += 1,
+                }
+            }
 
-        match running.next().await {
-            Some(Ok(Ok(Some(_)))) => successful += 1,
-            Some(Ok(Ok(None))) => failed += 1,
-            Some(Ok(Err(_))) => failed += 1,
-            Some(Err(_)) => failed += 1,
-            None => break,
-        }
+            (successful, failed)
+        }));
     }
 
-    (successful, failed)
+    collect_worker_counts(workers).await
+}
+
+fn partition_rows(rows: Vec<Value>, partition_count: usize) -> Vec<Vec<Value>> {
+    let mut partitions = (0..partition_count).map(|_| Vec::new()).collect::<Vec<_>>();
+    for (index, row) in rows.into_iter().enumerate() {
+        partitions[index % partition_count].push(row);
+    }
+    partitions
+        .into_iter()
+        .filter(|partition| !partition.is_empty())
+        .collect()
+}
+
+fn partition_ranges(total: u64, partition_count: usize) -> Vec<(u64, u64)> {
+    let chunk_size = total.div_ceil(partition_count as u64);
+    (0..partition_count as u64)
+        .map(|partition| {
+            let start = partition * chunk_size;
+            let end = (start + chunk_size).min(total);
+            (start, end)
+        })
+        .filter(|(start, end)| start < end)
+        .collect()
 }
 
 fn benchmark_config(data_dir: &str) -> NyroConfig {
     let mut config = NyroConfig::default();
     config.storage.data_dir = data_dir.to_string();
-    config.storage.sync_interval = 0;
+    config.storage.sync_interval = 60_000;
     config.storage.enable_mmap = false;
     config.performance.batch_size = BATCH_SIZE;
     config.performance.batch_timeout = BATCH_TIMEOUT_MS;

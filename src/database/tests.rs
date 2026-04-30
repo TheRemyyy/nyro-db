@@ -1,4 +1,5 @@
 use serde_json::json;
+use std::sync::Arc;
 
 use crate::config::NyroConfig;
 use crate::database::NyroDB;
@@ -86,6 +87,45 @@ async fn storage_initialization_error_is_returned() -> anyhow::Result<()> {
 
     assert!(result.is_err());
     std::fs::remove_file(&config.storage.data_dir)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_first_inserts_keep_one_readable_storage() -> anyhow::Result<()> {
+    let mut config = test_config("concurrent_storage_init");
+    config.performance.batch_size = 32;
+    config.performance.batch_timeout = 1;
+    cleanup_path(&config.storage.data_dir)?;
+
+    let db = Arc::new(NyroDB::new(config.clone()));
+    let mut tasks = Vec::new();
+    for id in 0..512_u64 {
+        let db_clone = Arc::clone(&db);
+        tasks.push(tokio::spawn(async move {
+            db_clone
+                .insert_raw(
+                    "user",
+                    json!({
+                        "id": id,
+                        "email": format!("user{}@test.com", id),
+                        "hash_password": format!("hash_{}", id),
+                        "created_at": id
+                    }),
+                )
+                .await
+        }));
+    }
+
+    for task in tasks {
+        task.await??;
+    }
+
+    for id in 0..512_u64 {
+        assert!(db.get_raw("user", id).await?.is_some(), "missing id {id}");
+    }
+
+    db.shutdown().await?;
+    cleanup_data_dir(&config.storage.data_dir)?;
     Ok(())
 }
 

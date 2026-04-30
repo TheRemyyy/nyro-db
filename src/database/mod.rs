@@ -6,7 +6,8 @@ mod types;
 pub(crate) mod validation;
 
 use anyhow::Result;
-use dashmap::DashMap;
+use dashmap::{mapref::entry::Entry, DashMap};
+use rayon::prelude::*;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -15,12 +16,12 @@ use tokio::sync::{mpsc, oneshot, Semaphore};
 
 pub use types::NyroDB;
 
-use crate::config::NyroConfig;
+use crate::config::{ModelSchema, NyroConfig};
 use crate::models::{LogEntry, Operation};
 use crate::storage::LogStorage;
 use crate::utils::logger::Logger;
 use crate::utils::metrics::{Metrics, MetricsReport};
-use helpers::{current_unix_millis, entry_id, field_matches};
+use helpers::{current_unix_millis, entry_id, field_matches, publish_insert_event};
 use types::BatchOperation;
 
 impl NyroDB {
@@ -87,15 +88,19 @@ impl NyroDB {
         let schema = self.config.models.get(model_name).ok_or_else(|| {
             anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
         })?;
-        let storage = Arc::new(LogStorage::new(
+        let new_storage = Arc::new(LogStorage::new(
             model_name,
             &self.config.storage,
             &self.config.logging,
             schema,
         )?);
-        self.storages
-            .insert(model_name.to_string(), storage.clone());
-        Ok(storage)
+        match self.storages.entry(model_name.to_string()) {
+            Entry::Occupied(existing_storage) => Ok(existing_storage.get().clone()),
+            Entry::Vacant(empty_slot) => {
+                empty_slot.insert(new_storage.clone());
+                Ok(new_storage)
+            }
+        }
     }
 
     pub async fn insert_raw(&self, model_name: &str, data: Value) -> Result<u64> {
@@ -118,12 +123,22 @@ impl NyroDB {
     pub async fn insert_many_raw(&self, model_name: &str, rows: Vec<Value>) -> Result<Vec<u64>> {
         let start = Instant::now();
         let timestamp = current_unix_millis()?;
-        let mut ids = Vec::with_capacity(rows.len());
-        let mut entries = Vec::with_capacity(rows.len());
+        let schema = self.config.models.get(model_name).ok_or_else(|| {
+            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
+        })?;
+        let prepared_rows = rows
+            .into_par_iter()
+            .map(|row| {
+                let entry = Self::prepare_insert_entry_for_schema(schema, row, timestamp)?;
+                let id = entry_id(&entry)?;
+                Ok((id, entry))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut ids = Vec::with_capacity(prepared_rows.len());
+        let mut entries = Vec::with_capacity(prepared_rows.len());
 
-        for row in rows {
-            let entry = self.prepare_insert_entry_with_timestamp(model_name, row, timestamp)?;
-            ids.push(entry_id(&entry)?);
+        for (id, entry) in prepared_rows {
+            ids.push(id);
             entries.push(entry);
         }
 
@@ -140,12 +155,14 @@ impl NyroDB {
     }
 
     fn prepare_insert_entry(&self, model_name: &str, data: Value) -> Result<LogEntry<Value>> {
-        self.prepare_insert_entry_with_timestamp(model_name, data, current_unix_millis()?)
+        let schema = self.config.models.get(model_name).ok_or_else(|| {
+            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
+        })?;
+        Self::prepare_insert_entry_for_schema(schema, data, current_unix_millis()?)
     }
 
-    fn prepare_insert_entry_with_timestamp(
-        &self,
-        model_name: &str,
+    fn prepare_insert_entry_for_schema(
+        schema: &ModelSchema,
         data: Value,
         timestamp: u64,
     ) -> Result<LogEntry<Value>> {
@@ -154,10 +171,7 @@ impl NyroDB {
             _ => return Err(anyhow::anyhow!("Data must be a JSON object")),
         };
 
-        validation::validate_data(&self.config, model_name, &obj)?;
-        let schema = self.config.models.get(model_name).ok_or_else(|| {
-            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-        })?;
+        validation::validate_data_with_schema(schema, &obj)?;
         Ok(LogEntry {
             timestamp,
             operation: Operation::Insert,
@@ -167,10 +181,7 @@ impl NyroDB {
 
     pub async fn get_raw(&self, model_name: &str, id: u64) -> Result<Option<Value>> {
         let start = Instant::now();
-        let result = self
-            .get_storage(model_name)?
-            .get::<Value>(id)?
-            .map(|entry| entry.data);
+        let result = self.get_storage(model_name)?.get_value(id)?;
 
         self.metrics
             .record_get(start.elapsed(), self.config.metrics.max_samples);
@@ -241,11 +252,12 @@ impl NyroDB {
             &self.config.logging,
             &format!("Flushed {} storage engines", shutdown_count),
         );
+        let total_operations = self.get_metrics().total_operations;
         Logger::shutdown_with_config(
             &self.config.logging,
             &format!(
                 "Final stats: {} total operations processed",
-                self.get_metrics().total_operations
+                total_operations
             ),
         );
         Logger::shutdown_with_config(&self.config.logging, "NyroDB shutdown completed");
@@ -276,23 +288,6 @@ impl NyroDB {
     }
 
     fn publish_insert(&self, model_name: &str, entry: &LogEntry<Value>) {
-        if self.real_time_tx.receiver_count() == 0 {
-            return;
-        }
-
-        match serde_json::to_string(&entry.data) {
-            Ok(data) => {
-                let _ = self
-                    .real_time_tx
-                    .send(format!("INSERT:{}:{}", model_name, data));
-            }
-            Err(error) => Logger::error_with_config(
-                &self.config.logging,
-                &format!(
-                    "Failed to serialize realtime event for {}: {}",
-                    model_name, error
-                ),
-            ),
-        }
+        publish_insert_event(&self.real_time_tx, &self.config.logging, model_name, entry);
     }
 }

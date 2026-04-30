@@ -2,8 +2,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use crate::models::{LogEntry, Operation};
+use crate::storage::index::CachedEntry;
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct RawEntry {
@@ -12,10 +14,18 @@ pub(crate) struct RawEntry {
     pub(crate) data: Vec<u8>,
 }
 
+#[derive(Serialize)]
+struct RawEntryRef<'a> {
+    timestamp: u64,
+    operation: u8,
+    data: &'a [u8],
+}
+
 pub(crate) struct EncodedEntry {
     pub(crate) data: Vec<u8>,
     pub(crate) size: u32,
     pub(crate) index_data: Option<IndexData>,
+    pub(crate) cache_entry: CachedEntry,
 }
 
 pub(crate) struct IndexData {
@@ -27,10 +37,12 @@ pub(crate) fn encode_entry(
     entry: &LogEntry<Value>,
     indexed_fields: &HashSet<String>,
 ) -> Result<EncodedEntry> {
-    let raw_entry = RawEntry {
+    let json_data = serde_json::to_vec(&entry.data)?;
+    let operation = operation_to_u8(&entry.operation);
+    let raw_entry = RawEntryRef {
         timestamp: entry.timestamp,
-        operation: operation_to_u8(&entry.operation),
-        data: serde_json::to_vec(&entry.data)?,
+        operation,
+        data: &json_data,
     };
     let data = bincode::serialize(&raw_entry)?;
     let size = u32::try_from(data.len())
@@ -40,6 +52,11 @@ pub(crate) fn encode_entry(
         data,
         size,
         index_data: build_index_data(&entry.data, indexed_fields),
+        cache_entry: CachedEntry {
+            timestamp: entry.timestamp,
+            operation,
+            data: Arc::from(json_data),
+        },
     })
 }
 

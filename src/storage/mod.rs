@@ -1,12 +1,14 @@
 mod encoding;
+mod index;
 mod rebuild;
 
 use anyhow::Result;
+use index::{EntryLocation, IndexedEntry, PrimaryIndex};
 use memmap2::MmapOptions;
+use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -23,13 +25,14 @@ use dashmap::DashMap;
 use encoding::{EncodedEntry, RawEntry};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
+
 pub struct LogStorage {
     file: Arc<RwLock<BufWriter<File>>>,
-    read_file: Arc<File>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
     indexed_fields: HashSet<String>,
-    pub index: Arc<DashMap<u64, (u64, u32)>>,
+    index: Arc<PrimaryIndex>,
     pub secondary_indices: Arc<DashMap<String, DashMap<String, Vec<u64>>>>,
     pub file_path: String,
     pub current_offset: Arc<AtomicU64>,
@@ -64,12 +67,10 @@ impl LogStorage {
                 e
             })?;
 
-        let read_file = Arc::new(file.try_clone()?);
         let writer = BufWriter::with_capacity(config.buffer_size, file);
 
         let mut storage = Self {
             file: Arc::new(RwLock::new(writer)),
-            read_file,
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
             indexed_fields: schema
@@ -78,7 +79,7 @@ impl LogStorage {
                 .filter(|field| field.indexed && field.name != "id")
                 .map(|field| field.name.clone())
                 .collect(),
-            index: Arc::new(DashMap::new()),
+            index: Arc::new(PrimaryIndex::new()),
             secondary_indices: Arc::new(DashMap::new()),
             file_path: file_path.clone(),
             current_offset: Arc::new(AtomicU64::new(0)),
@@ -157,10 +158,7 @@ impl LogStorage {
             return Ok(());
         }
 
-        let encoded_entries = entries
-            .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
-            .collect::<Result<Vec<_>>>()?;
+        let encoded_entries = self.encode_entries(entries)?;
         let mut file = self
             .file
             .write()
@@ -175,8 +173,8 @@ impl LogStorage {
             committed_entries.push((offset, encoded_entry));
             offset += 4 + entry_size as u64;
         }
-        file.flush()?;
         if self.sync_on_append {
+            file.flush()?;
             file.get_ref().sync_data()?;
         }
 
@@ -188,10 +186,32 @@ impl LogStorage {
         Ok(())
     }
 
+    fn encode_entries(&self, entries: &[&LogEntry<Value>]) -> Result<Vec<EncodedEntry>> {
+        if entries.len() >= PARALLEL_ENCODE_THRESHOLD {
+            return entries
+                .par_iter()
+                .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+                .collect::<Result<Vec<_>>>();
+        }
+
+        entries
+            .iter()
+            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+            .collect::<Result<Vec<_>>>()
+    }
+
     fn insert_indexes(&self, offset: u64, encoded_entry: &EncodedEntry) {
         if let Some(index_data) = &encoded_entry.index_data {
-            self.index
-                .insert(index_data.id, (offset, encoded_entry.size));
+            self.index.insert(
+                index_data.id,
+                IndexedEntry {
+                    location: EntryLocation {
+                        offset,
+                        size: encoded_entry.size,
+                    },
+                    cache: encoded_entry.cache_entry.clone(),
+                },
+            );
             for (field, value) in &index_data.fields {
                 let field_idx = self.secondary_indices.entry(field.clone()).or_default();
                 field_idx
@@ -203,19 +223,19 @@ impl LogStorage {
     }
 
     pub fn get<T: for<'de> Deserialize<'de>>(&self, id: u64) -> Result<Option<LogEntry<T>>> {
-        if let Some(entry_ref) = self.index.get(&id) {
-            let (offset, size) = *entry_ref;
+        if let Some(indexed_entry) = self.index.get(id) {
+            let location = indexed_entry.location;
             let raw_entry = if let Some(ref mmap) = self.mmap_file {
-                let start = offset as usize;
-                let end = start + 4 + size as usize;
+                let start = location.offset as usize;
+                let end = start + 4 + location.size as usize;
                 if end <= mmap.len() {
                     let data = &mmap[start + 4..end];
                     bincode::deserialize::<RawEntry>(data)?
                 } else {
-                    self.read_raw_entry(offset, size)?
+                    return self.decode_cached_entry(indexed_entry);
                 }
             } else {
-                self.read_raw_entry(offset, size)?
+                return self.decode_cached_entry(indexed_entry);
             };
 
             let data: T = serde_json::from_slice(&raw_entry.data)?;
@@ -236,16 +256,36 @@ impl LogStorage {
         }
     }
 
-    fn read_raw_entry(&self, offset: u64, size: u32) -> Result<RawEntry> {
-        let mut buffer = vec![0u8; size as usize];
-        self.read_file.read_exact_at(&mut buffer, offset + 4)?;
-        Ok(bincode::deserialize::<RawEntry>(&buffer)?)
+    pub fn get_value(&self, id: u64) -> Result<Option<Value>> {
+        self.index
+            .get(id)
+            .map(|entry| serde_json::from_slice(&entry.cache.data).map_err(Into::into))
+            .transpose()
+    }
+
+    fn decode_cached_entry<T: for<'de> Deserialize<'de>>(
+        &self,
+        indexed_entry: IndexedEntry,
+    ) -> Result<Option<LogEntry<T>>> {
+        let data = serde_json::from_slice(&indexed_entry.cache.data)?;
+        let operation = match indexed_entry.cache.operation {
+            0 => Operation::Insert,
+            1 => Operation::Update,
+            2 => Operation::Delete,
+            _ => Operation::Insert,
+        };
+
+        Ok(Some(LogEntry {
+            timestamp: indexed_entry.cache.timestamp,
+            operation,
+            data,
+        }))
     }
 
     pub fn get_all<T: for<'de> Deserialize<'de>>(&self) -> Result<Vec<LogEntry<T>>> {
         let mut results = Vec::new();
-        for item in self.index.iter() {
-            if let Ok(Some(entry)) = self.get(*item.key()) {
+        for id in self.index.ids() {
+            if let Ok(Some(entry)) = self.get(id) {
                 results.push(entry);
             }
         }
