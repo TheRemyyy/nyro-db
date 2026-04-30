@@ -9,7 +9,7 @@ use super::encoding::{self, CacheMode, EncodedEntry};
 use super::index::{EntryLocation, IndexedEntry};
 use super::LogStorage;
 
-const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
+const PARALLEL_ENCODE_THRESHOLD: usize = 16_384;
 
 impl LogStorage {
     pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
