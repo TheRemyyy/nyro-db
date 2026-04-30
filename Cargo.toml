@@ -3,6 +3,10 @@ name = "NyroDB"
 version = "1.0.0"
 edition = "2021"
 
+[lib]
+name = "nyrodb"
+path = "src/lib.rs"
+
 [dependencies]
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "signal", "sync", "time"] }
 serde = { version = "1.0", features = ["derive"] }

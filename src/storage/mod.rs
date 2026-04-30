@@ -1,29 +1,27 @@
+mod encoding;
+
 use anyhow::Result;
 use memmap2::MmapOptions;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{BufWriter, Read, Write};
+use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crate::config::{LoggingConfig, StorageConfig};
-use crate::models::LogEntry;
+use crate::models::{LogEntry, Operation};
 use crate::utils::logger::Logger;
 
 use dashmap::DashMap;
+use encoding::{EncodedEntry, RawEntry};
 use std::sync::atomic::{AtomicU64, Ordering};
-
-#[derive(Serialize, Deserialize)]
-pub struct RawEntry {
-    pub timestamp: u64,
-    pub operation: u8,
-    pub data: Vec<u8>,
-}
 
 pub struct LogStorage {
     file: Arc<RwLock<BufWriter<File>>>,
+    read_file: Arc<File>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
     pub index: Arc<DashMap<u64, (u64, u32)>>,
@@ -60,10 +58,12 @@ impl LogStorage {
                 e
             })?;
 
+        let read_file = Arc::new(file.try_clone()?);
         let writer = BufWriter::with_capacity(config.buffer_size, file);
 
         let mut storage = Self {
             file: Arc::new(RwLock::new(writer)),
+            read_file,
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
             index: Arc::new(DashMap::new()),
@@ -137,54 +137,57 @@ impl LogStorage {
     }
 
     pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
-        let raw_entry = RawEntry {
-            timestamp: entry.timestamp,
-            operation: match entry.operation {
-                crate::models::Operation::Insert => 0,
-                crate::models::Operation::Update => 1,
-                crate::models::Operation::Delete => 2,
-            },
-            data: serde_json::to_vec(&entry.data)?,
-        };
+        self.append_many(&[entry])
+    }
 
-        let serialized = bincode::serialize(&raw_entry)?;
-        let size = serialized.len() as u32;
+    pub fn append_many(&self, entries: &[&LogEntry<Value>]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let encoded_entries = entries
+            .iter()
+            .map(|entry| encoding::encode_entry(entry))
+            .collect::<Result<Vec<_>>>()?;
         let mut file = self
             .file
             .write()
             .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
-        let offset = self.current_offset.load(Ordering::Acquire);
+        let mut offset = self.current_offset.load(Ordering::Acquire);
+        let mut committed_entries = Vec::with_capacity(encoded_entries.len());
 
-        file.write_all(&size.to_le_bytes())?;
-        file.write_all(&serialized)?;
+        for encoded_entry in encoded_entries {
+            let entry_size = encoded_entry.size;
+            file.write_all(&encoded_entry.size.to_le_bytes())?;
+            file.write_all(&encoded_entry.data)?;
+            committed_entries.push((offset, encoded_entry));
+            offset += 4 + entry_size as u64;
+        }
         file.flush()?;
         if self.sync_on_append {
             file.get_ref().sync_data()?;
         }
 
-        if let Some(id) = entry.data.get("id").and_then(|v| v.as_u64()) {
-            self.index.insert(id, (offset, size));
-
-            // Update secondary indices
-            if let Some(obj) = entry.data.as_object() {
-                for (field, value) in obj {
-                    if field != "id" {
-                        let value_str = if let Some(s) = value.as_str() {
-                            s.to_string()
-                        } else {
-                            value.to_string()
-                        };
-                        let field_idx = self.secondary_indices.entry(field.clone()).or_default();
-                        field_idx.entry(value_str).or_default().push(id);
-                    }
-                }
-            }
+        for (entry_offset, encoded_entry) in &committed_entries {
+            self.insert_indexes(*entry_offset, encoded_entry);
         }
-
-        self.current_offset
-            .fetch_add(4 + size as u64, Ordering::SeqCst);
+        self.current_offset.store(offset, Ordering::SeqCst);
 
         Ok(())
+    }
+
+    fn insert_indexes(&self, offset: u64, encoded_entry: &EncodedEntry) {
+        if let Some(index_data) = &encoded_entry.index_data {
+            self.index
+                .insert(index_data.id, (offset, encoded_entry.size));
+            for (field, value) in &index_data.fields {
+                let field_idx = self.secondary_indices.entry(field.clone()).or_default();
+                field_idx
+                    .entry(value.clone())
+                    .or_default()
+                    .push(index_data.id);
+            }
+        }
     }
 
     pub fn get<T: for<'de> Deserialize<'de>>(&self, id: u64) -> Result<Option<LogEntry<T>>> {
@@ -197,26 +200,18 @@ impl LogStorage {
                     let data = &mmap[start + 4..end];
                     bincode::deserialize::<RawEntry>(data)?
                 } else {
-                    let mut file = File::open(&self.file_path)?;
-                    file.seek(SeekFrom::Start(offset + 4))?;
-                    let mut buffer = vec![0u8; size as usize];
-                    file.read_exact(&mut buffer)?;
-                    bincode::deserialize::<RawEntry>(&buffer)?
+                    self.read_raw_entry(offset, size)?
                 }
             } else {
-                let mut file = File::open(&self.file_path)?;
-                file.seek(SeekFrom::Start(offset + 4))?;
-                let mut buffer = vec![0u8; size as usize];
-                file.read_exact(&mut buffer)?;
-                bincode::deserialize::<RawEntry>(&buffer)?
+                self.read_raw_entry(offset, size)?
             };
 
             let data: T = serde_json::from_slice(&raw_entry.data)?;
             let operation = match raw_entry.operation {
-                0 => crate::models::Operation::Insert,
-                1 => crate::models::Operation::Update,
-                2 => crate::models::Operation::Delete,
-                _ => crate::models::Operation::Insert,
+                0 => Operation::Insert,
+                1 => Operation::Update,
+                2 => Operation::Delete,
+                _ => Operation::Insert,
             };
 
             Ok(Some(LogEntry {
@@ -227,6 +222,12 @@ impl LogStorage {
         } else {
             Ok(None)
         }
+    }
+
+    fn read_raw_entry(&self, offset: u64, size: u32) -> Result<RawEntry> {
+        let mut buffer = vec![0u8; size as usize];
+        self.read_file.read_exact_at(&mut buffer, offset + 4)?;
+        Ok(bincode::deserialize::<RawEntry>(&buffer)?)
     }
 
     pub fn get_all<T: for<'de> Deserialize<'de>>(&self) -> Result<Vec<LogEntry<T>>> {

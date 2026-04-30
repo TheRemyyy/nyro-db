@@ -1,5 +1,6 @@
 use dashmap::DashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -11,6 +12,11 @@ use crate::models::LogEntry;
 use crate::storage::LogStorage;
 use crate::utils::logger::Logger;
 use crate::utils::metrics::Metrics;
+
+type PendingInsert = (
+    LogEntry<Value>,
+    tokio::sync::oneshot::Sender<Result<(), String>>,
+);
 
 pub(crate) struct BatchProcessor {
     pub(crate) storages: Arc<DashMap<String, Arc<LogStorage>>>,
@@ -78,6 +84,8 @@ async fn process_batch(
     log_config: &LoggingConfig,
     real_time_tx: &tokio::sync::broadcast::Sender<String>,
 ) {
+    let mut grouped: HashMap<String, Vec<PendingInsert>> = HashMap::new();
+
     for operation in batch.drain(..) {
         match operation {
             BatchOperation::Insert {
@@ -85,30 +93,59 @@ async fn process_batch(
                 entry,
                 committed,
             } => {
-                let result = append_entry(storages, &model_name, &entry, metrics);
-                if result.is_ok() {
-                    publish_insert(real_time_tx, &model_name, &entry, log_config);
-                }
-                let _ = committed.send(result.map_err(|error| error.to_string()));
+                grouped
+                    .entry(model_name)
+                    .or_default()
+                    .push((entry, committed));
             }
         }
     }
+
+    for (model_name, entries) in grouped {
+        process_model_batch(
+            storages,
+            &model_name,
+            entries,
+            metrics,
+            log_config,
+            real_time_tx,
+        );
+    }
 }
 
-fn append_entry(
+fn process_model_batch(
     storages: &Arc<DashMap<String, Arc<LogStorage>>>,
     model_name: &str,
-    entry: &LogEntry<Value>,
+    entries: Vec<PendingInsert>,
     metrics: &Arc<Metrics>,
-) -> anyhow::Result<()> {
-    let storage = storages
-        .get(model_name)
-        .ok_or_else(|| anyhow::anyhow!("Storage for model '{}' not found", model_name))?;
-
+    log_config: &LoggingConfig,
+    real_time_tx: &tokio::sync::broadcast::Sender<String>,
+) {
     let timer = Instant::now();
-    storage.value().append(entry)?;
-    metrics.record_insert(timer.elapsed(), metrics.max_samples());
-    Ok(())
+    let result = storages
+        .get(model_name)
+        .ok_or_else(|| anyhow::anyhow!("Storage for model '{}' not found", model_name))
+        .and_then(|storage| {
+            let log_entries = entries.iter().map(|(entry, _)| entry).collect::<Vec<_>>();
+            storage.value().append_many(&log_entries)
+        });
+
+    match result {
+        Ok(()) => {
+            let elapsed = timer.elapsed();
+            for (entry, committed) in entries {
+                metrics.record_insert(elapsed, metrics.max_samples());
+                publish_insert(real_time_tx, model_name, &entry, log_config);
+                let _ = committed.send(Ok(()));
+            }
+        }
+        Err(error) => {
+            let message = error.to_string();
+            for (_, committed) in entries {
+                let _ = committed.send(Err(message.clone()));
+            }
+        }
+    }
 }
 
 fn publish_insert(

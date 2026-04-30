@@ -1,19 +1,12 @@
-mod api;
-mod config;
-mod database;
-mod models;
-mod storage;
-mod utils;
-
 use anyhow::Result;
+use nyrodb::api;
+use nyrodb::config::NyroConfig;
+use nyrodb::database::NyroDB;
+use nyrodb::utils::logger::Logger;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
-
-use config::NyroConfig;
-use database::NyroDB;
-use utils::logger::Logger;
 
 #[tokio::main]
 async fn main() -> Result<()> {
