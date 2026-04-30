@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 
 use crate::models::{LogEntry, Operation};
 
@@ -22,7 +23,10 @@ pub(crate) struct IndexData {
     pub(crate) fields: Vec<(String, String)>,
 }
 
-pub(crate) fn encode_entry(entry: &LogEntry<Value>) -> Result<EncodedEntry> {
+pub(crate) fn encode_entry(
+    entry: &LogEntry<Value>,
+    indexed_fields: &HashSet<String>,
+) -> Result<EncodedEntry> {
     let raw_entry = RawEntry {
         timestamp: entry.timestamp,
         operation: operation_to_u8(&entry.operation),
@@ -35,7 +39,7 @@ pub(crate) fn encode_entry(entry: &LogEntry<Value>) -> Result<EncodedEntry> {
     Ok(EncodedEntry {
         data,
         size,
-        index_data: build_index_data(&entry.data),
+        index_data: build_index_data(&entry.data, indexed_fields),
     })
 }
 
@@ -47,14 +51,14 @@ fn operation_to_u8(operation: &Operation) -> u8 {
     }
 }
 
-fn build_index_data(data: &Value) -> Option<IndexData> {
+fn build_index_data(data: &Value, indexed_fields: &HashSet<String>) -> Option<IndexData> {
     let id = data.get("id").and_then(|value| value.as_u64())?;
     let fields = data
         .as_object()
         .map(|object| {
             object
                 .iter()
-                .filter(|(field, _)| field.as_str() != "id")
+                .filter(|(field, _)| indexed_fields.contains(field.as_str()))
                 .map(|(field, value)| {
                     let value_string = value
                         .as_str()

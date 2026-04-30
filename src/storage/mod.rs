@@ -1,17 +1,21 @@
 mod encoding;
+mod rebuild;
 
 use anyhow::Result;
 use memmap2::MmapOptions;
 use serde::Deserialize;
 use serde_json::Value;
-use std::fs::{File, OpenOptions};
-use std::io::{BufWriter, Read, Write};
+use std::collections::HashSet;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::{
+    fs::{File, OpenOptions},
+    io::{BufWriter, Write},
+};
 
-use crate::config::{LoggingConfig, StorageConfig};
+use crate::config::{LoggingConfig, ModelSchema, StorageConfig};
 use crate::models::{LogEntry, Operation};
 use crate::utils::logger::Logger;
 
@@ -24,6 +28,7 @@ pub struct LogStorage {
     read_file: Arc<File>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
+    indexed_fields: HashSet<String>,
     pub index: Arc<DashMap<u64, (u64, u32)>>,
     pub secondary_indices: Arc<DashMap<String, DashMap<String, Vec<u64>>>>,
     pub file_path: String,
@@ -35,6 +40,7 @@ impl LogStorage {
         model_name: &str,
         config: &StorageConfig,
         log_config: &LoggingConfig,
+        schema: &ModelSchema,
     ) -> Result<Self> {
         let file_path = format!("{}/{}.log", config.data_dir, model_name);
         std::fs::create_dir_all(&config.data_dir).map_err(|e| {
@@ -66,6 +72,12 @@ impl LogStorage {
             read_file,
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
+            indexed_fields: schema
+                .fields
+                .iter()
+                .filter(|field| field.indexed && field.name != "id")
+                .map(|field| field.name.clone())
+                .collect(),
             index: Arc::new(DashMap::new()),
             secondary_indices: Arc::new(DashMap::new()),
             file_path: file_path.clone(),
@@ -147,7 +159,7 @@ impl LogStorage {
 
         let encoded_entries = entries
             .iter()
-            .map(|entry| encoding::encode_entry(entry))
+            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
             .collect::<Result<Vec<_>>>()?;
         let mut file = self
             .file
@@ -238,57 +250,5 @@ impl LogStorage {
             }
         }
         Ok(results)
-    }
-
-    fn rebuild_index(&self) -> Result<()> {
-        if !Path::new(&self.file_path).exists() {
-            return Ok(());
-        }
-
-        let mut file = File::open(&self.file_path)?;
-        self.current_offset.store(0, Ordering::Release);
-        self.index.clear();
-        self.secondary_indices.clear(); // Clear secondary indices on rebuild
-
-        loop {
-            let offset = self.current_offset.load(Ordering::Acquire);
-            let mut size_bytes = [0u8; 4];
-            match file.read_exact(&mut size_bytes) {
-                Ok(_) => {
-                    let size = u32::from_le_bytes(size_bytes);
-                    let mut buffer = vec![0u8; size as usize];
-                    file.read_exact(&mut buffer)?;
-
-                    let raw_entry: RawEntry = bincode::deserialize(&buffer)?;
-                    let data: Value = serde_json::from_slice(&raw_entry.data)?;
-
-                    if let Some(id) = data.get("id").and_then(|v| v.as_u64()) {
-                        self.index.insert(id, (offset, size));
-
-                        // Rebuild secondary indices
-                        if let Some(obj) = data.as_object() {
-                            for (field, value) in obj {
-                                if field != "id" {
-                                    let value_str = if let Some(s) = value.as_str() {
-                                        s.to_string()
-                                    } else {
-                                        value.to_string()
-                                    };
-                                    let field_idx =
-                                        self.secondary_indices.entry(field.clone()).or_default();
-                                    field_idx.entry(value_str).or_default().push(id);
-                                }
-                            }
-                        }
-                    }
-
-                    self.current_offset
-                        .fetch_add(4 + size as u64, Ordering::SeqCst);
-                }
-                Err(_) => break,
-            }
-        }
-
-        Ok(())
     }
 }

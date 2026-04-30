@@ -32,38 +32,46 @@ max_samples = 10000
 name = "id"
 type = "u64"
 required = true
+indexed = false
 
 [[models.product.fields]]
 name = "name"
 type = "string"
 required = true
+indexed = true
 
 [[models.product.fields]]
 name = "price"
 type = "u32"
 required = true
+indexed = false
 
 [[models.product.fields]]
 name = "category_id"
 type = "u64"
 required = true
+indexed = true
 
 [[models.user.fields]]
 name = "id"
 type = "u64"
 required = true
+indexed = false
 
 [[models.user.fields]]
 name = "email"
 type = "string"
 required = true
+indexed = true
 
 [[models.user.fields]]
 name = "hash_password"
 type = "string"
 required = true
+indexed = false
 
 [[models.user.fields]]
 name = "created_at"
 type = "u64"
 required = true
+indexed = false

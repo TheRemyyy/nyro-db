@@ -78,6 +78,7 @@ impl Logger {
             "error" => level == "error" || level == "shutdown",
             "warn" => level == "error" || level == "warn" || level == "shutdown",
             "info" | "shutdown" => true,
+            "off" => false,
             _ => true,
         }
     }

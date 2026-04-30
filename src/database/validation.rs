@@ -26,11 +26,14 @@ pub(crate) fn validate_data(
     Ok(())
 }
 
-pub(crate) fn filter_data(schema: &ModelSchema, obj: &Map<String, Value>) -> Map<String, Value> {
+pub(crate) fn filter_data_owned(
+    schema: &ModelSchema,
+    mut obj: Map<String, Value>,
+) -> Map<String, Value> {
     let mut filtered = Map::with_capacity(schema.fields.len());
     for field in &schema.fields {
-        if let Some(value) = obj.get(&field.name) {
-            filtered.insert(field.name.clone(), value.clone());
+        if let Some(value) = obj.remove(&field.name) {
+            filtered.insert(field.name.clone(), value);
         }
     }
     filtered

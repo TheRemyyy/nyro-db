@@ -1,3 +1,5 @@
+mod defaults;
+
 use crate::utils::logger::Logger;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -72,102 +74,8 @@ pub struct ModelField {
     pub field_type: String,
     #[serde(default)]
     pub required: bool,
-}
-
-impl Default for NyroConfig {
-    fn default() -> Self {
-        let mut models = HashMap::new();
-
-        models.insert(
-            "user".to_string(),
-            ModelSchema {
-                fields: vec![
-                    ModelField {
-                        name: "id".to_string(),
-                        field_type: "u64".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "email".to_string(),
-                        field_type: "string".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "hash_password".to_string(),
-                        field_type: "string".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "created_at".to_string(),
-                        field_type: "u64".to_string(),
-                        required: true,
-                    },
-                ],
-            },
-        );
-
-        models.insert(
-            "product".to_string(),
-            ModelSchema {
-                fields: vec![
-                    ModelField {
-                        name: "id".to_string(),
-                        field_type: "u64".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "name".to_string(),
-                        field_type: "string".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "price".to_string(),
-                        field_type: "u32".to_string(),
-                        required: true,
-                    },
-                    ModelField {
-                        name: "category_id".to_string(),
-                        field_type: "u64".to_string(),
-                        required: true,
-                    },
-                ],
-            },
-        );
-
-        Self {
-            server: ServerConfig {
-                host: "127.0.0.1".to_string(),
-                port: 8080,
-                graceful_shutdown_timeout: 5,
-            },
-            storage: StorageConfig {
-                data_dir: "./data".to_string(),
-                buffer_size: 8 * 1024 * 1024,
-                enable_mmap: true,
-                sync_interval: 1000,
-            },
-            performance: PerformanceConfig {
-                batch_size: 1000,
-                batch_timeout: 100,
-                max_concurrent_ops: 10000,
-            },
-            logging: LoggingConfig {
-                level: "info".to_string(),
-                enable_colors: true,
-                log_requests: false,
-            },
-            metrics: MetricsConfig {
-                enable: true,
-                report_interval: 30,
-                max_samples: 10000,
-            },
-            security: SecurityConfig {
-                enable_auth: false,
-                api_key: String::new(),
-            },
-            models,
-        }
-    }
+    #[serde(default)]
+    pub indexed: bool,
 }
 
 impl NyroConfig {
@@ -253,7 +161,7 @@ impl NyroConfig {
             }
         }
         match self.logging.level.as_str() {
-            "info" | "warn" | "error" | "shutdown" => {}
+            "info" | "warn" | "error" | "shutdown" | "off" => {}
             _ => return Err(anyhow::anyhow!("Invalid log level: {}", self.logging.level)),
         }
         if self.metrics.max_samples == 0 {

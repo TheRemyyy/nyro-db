@@ -154,6 +154,10 @@ fn publish_insert(
     entry: &LogEntry<Value>,
     log_config: &LoggingConfig,
 ) {
+    if real_time_tx.receiver_count() == 0 {
+        return;
+    }
+
     match serde_json::to_string(&entry.data) {
         Ok(data) => {
             let _ = real_time_tx.send(format!("INSERT:{}:{}", model_name, data));

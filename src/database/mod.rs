@@ -1,4 +1,5 @@
 mod batch;
+mod helpers;
 #[cfg(test)]
 mod tests;
 mod types;
@@ -9,7 +10,7 @@ use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
 pub use types::NyroDB;
@@ -19,6 +20,7 @@ use crate::models::{LogEntry, Operation};
 use crate::storage::LogStorage;
 use crate::utils::logger::Logger;
 use crate::utils::metrics::{Metrics, MetricsReport};
+use helpers::{current_unix_millis, entry_id, field_matches};
 use types::BatchOperation;
 
 impl NyroDB {
@@ -82,10 +84,14 @@ impl NyroDB {
             return Ok(storage.clone());
         }
 
+        let schema = self.config.models.get(model_name).ok_or_else(|| {
+            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
+        })?;
         let storage = Arc::new(LogStorage::new(
             model_name,
             &self.config.storage,
             &self.config.logging,
+            schema,
         )?);
         self.storages
             .insert(model_name.to_string(), storage.clone());
@@ -94,24 +100,8 @@ impl NyroDB {
 
     pub async fn insert_raw(&self, model_name: &str, data: Value) -> Result<u64> {
         let start = Instant::now();
-        let obj = data
-            .as_object()
-            .ok_or_else(|| anyhow::anyhow!("Data must be a JSON object"))?;
-
-        validation::validate_data(&self.config, model_name, obj)?;
-        let id = obj
-            .get("id")
-            .and_then(|value| value.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid 'id' field"))?;
-
-        let schema = self.config.models.get(model_name).ok_or_else(|| {
-            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-        })?;
-        let log_entry = LogEntry {
-            timestamp: current_unix_millis()?,
-            operation: Operation::Insert,
-            data: Value::Object(validation::filter_data(schema, obj)),
-        };
+        let log_entry = self.prepare_insert_entry(model_name, data)?;
+        let id = entry_id(&log_entry)?;
 
         if self.config.performance.batch_size > 1 {
             self.insert_batched(model_name, log_entry).await?;
@@ -123,6 +113,56 @@ impl NyroDB {
         }
 
         Ok(id)
+    }
+
+    pub async fn insert_many_raw(&self, model_name: &str, rows: Vec<Value>) -> Result<Vec<u64>> {
+        let start = Instant::now();
+        let timestamp = current_unix_millis()?;
+        let mut ids = Vec::with_capacity(rows.len());
+        let mut entries = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let entry = self.prepare_insert_entry_with_timestamp(model_name, row, timestamp)?;
+            ids.push(entry_id(&entry)?);
+            entries.push(entry);
+        }
+
+        let entry_refs = entries.iter().collect::<Vec<_>>();
+        self.get_storage(model_name)?.append_many(&entry_refs)?;
+
+        for entry in &entries {
+            self.metrics
+                .record_insert(start.elapsed(), self.config.metrics.max_samples);
+            self.publish_insert(model_name, entry);
+        }
+
+        Ok(ids)
+    }
+
+    fn prepare_insert_entry(&self, model_name: &str, data: Value) -> Result<LogEntry<Value>> {
+        self.prepare_insert_entry_with_timestamp(model_name, data, current_unix_millis()?)
+    }
+
+    fn prepare_insert_entry_with_timestamp(
+        &self,
+        model_name: &str,
+        data: Value,
+        timestamp: u64,
+    ) -> Result<LogEntry<Value>> {
+        let obj = match data {
+            Value::Object(obj) => obj,
+            _ => return Err(anyhow::anyhow!("Data must be a JSON object")),
+        };
+
+        validation::validate_data(&self.config, model_name, &obj)?;
+        let schema = self.config.models.get(model_name).ok_or_else(|| {
+            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
+        })?;
+        Ok(LogEntry {
+            timestamp,
+            operation: Operation::Insert,
+            data: Value::Object(validation::filter_data_owned(schema, obj)),
+        })
     }
 
     pub async fn get_raw(&self, model_name: &str, id: u64) -> Result<Option<Value>> {
@@ -159,6 +199,12 @@ impl NyroDB {
                     if let Some(entry) = storage.get::<Value>(*id)? {
                         results.push(entry.data);
                     }
+                }
+            }
+        } else {
+            for entry in storage.get_all::<Value>()? {
+                if field_matches(&entry.data, field, value) {
+                    results.push(entry.data);
                 }
             }
         }
@@ -230,6 +276,10 @@ impl NyroDB {
     }
 
     fn publish_insert(&self, model_name: &str, entry: &LogEntry<Value>) {
+        if self.real_time_tx.receiver_count() == 0 {
+            return;
+        }
+
         match serde_json::to_string(&entry.data) {
             Ok(data) => {
                 let _ = self
@@ -245,12 +295,4 @@ impl NyroDB {
             ),
         }
     }
-}
-
-fn current_unix_millis() -> Result<u64> {
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|error| anyhow::anyhow!("System clock is before UNIX epoch: {}", error))?;
-    u64::try_from(duration.as_millis())
-        .map_err(|_| anyhow::anyhow!("Current UNIX timestamp does not fit into u64 millis"))
 }
