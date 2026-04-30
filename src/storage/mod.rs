@@ -1,11 +1,11 @@
 mod encoding;
 mod index;
 mod rebuild;
+mod writer;
 
 use anyhow::Result;
-use index::{EntryLocation, IndexedEntry, PrimaryIndex};
+use index::{IndexedEntry, PrimaryIndex};
 use memmap2::MmapOptions;
-use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -22,10 +22,8 @@ use crate::models::LogEntry;
 use crate::utils::logger::Logger;
 
 use dashmap::DashMap;
-use encoding::{operation_from_u8, EncodedEntry, RawEntry};
-use std::sync::atomic::{AtomicU64, Ordering};
-
-const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
+use encoding::{operation_from_u8, RawEntry};
+use std::sync::atomic::AtomicU64;
 
 pub struct LogStorage {
     model_name: Arc<str>,
@@ -160,79 +158,6 @@ impl LogStorage {
             }
         }
         Ok(())
-    }
-
-    pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
-        self.append_many(&[entry])
-    }
-
-    pub fn append_many(&self, entries: &[&LogEntry<Value>]) -> Result<()> {
-        if entries.is_empty() {
-            return Ok(());
-        }
-
-        let encoded_entries = self.encode_entries(entries)?;
-        let mut file = self
-            .file
-            .write()
-            .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
-        let mut offset = self.current_offset.load(Ordering::Acquire);
-        let mut committed_entries = Vec::with_capacity(encoded_entries.len());
-
-        for encoded_entry in encoded_entries {
-            let entry_size = encoded_entry.size;
-            file.write_all(&encoded_entry.size.to_le_bytes())?;
-            file.write_all(&encoded_entry.data)?;
-            committed_entries.push((offset, encoded_entry));
-            offset += 4 + entry_size as u64;
-        }
-        if self.sync_on_append {
-            file.flush()?;
-            file.get_ref().sync_data()?;
-        }
-
-        for (entry_offset, encoded_entry) in &committed_entries {
-            self.insert_indexes(*entry_offset, encoded_entry);
-        }
-        self.current_offset.store(offset, Ordering::SeqCst);
-
-        Ok(())
-    }
-
-    fn encode_entries(&self, entries: &[&LogEntry<Value>]) -> Result<Vec<EncodedEntry>> {
-        if entries.len() >= PARALLEL_ENCODE_THRESHOLD {
-            return entries
-                .par_iter()
-                .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
-                .collect::<Result<Vec<_>>>();
-        }
-
-        entries
-            .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
-            .collect::<Result<Vec<_>>>()
-    }
-
-    fn insert_indexes(&self, offset: u64, encoded_entry: &EncodedEntry) {
-        if let Some(index_data) = &encoded_entry.index_data {
-            self.index.insert(
-                index_data.id,
-                IndexedEntry {
-                    location: EntryLocation {
-                        offset,
-                        size: encoded_entry.size,
-                    },
-                    cache: encoded_entry.cache_entry.clone(),
-                },
-            );
-            for (field, value) in &index_data.fields {
-                let field_idx = self.secondary_indices.entry(field.clone()).or_default();
-                field_idx
-                    .entry(value.clone())
-                    .or_default()
-                    .push(index_data.id);
-            }
-        }
     }
 
     pub fn get<T: for<'de> Deserialize<'de>>(&self, id: u64) -> Result<Option<LogEntry<T>>> {

@@ -143,8 +143,7 @@ impl NyroDB {
             entries.push(entry);
         }
 
-        let entry_refs = entries.iter().collect::<Vec<_>>();
-        self.get_storage(model_name)?.append_many(&entry_refs)?;
+        self.get_storage(model_name)?.append_entries(&entries)?;
 
         finish_bulk_insert(
             &self.metrics,
