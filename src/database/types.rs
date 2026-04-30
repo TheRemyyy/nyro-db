@@ -3,7 +3,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-use crate::config::{ModelSchema, NyroConfig};
+use crate::config::NyroConfig;
+use crate::database::validation::SchemaPlan;
 use crate::storage::LogStorage;
 use crate::utils::metrics::Metrics;
 
@@ -17,6 +18,6 @@ pub struct NyroDB {
 }
 
 pub(crate) struct ModelRuntime {
-    pub(crate) schema: Arc<ModelSchema>,
+    pub(crate) schema_plan: Arc<SchemaPlan>,
     pub(crate) storage: Arc<LogStorage>,
 }

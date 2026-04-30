@@ -1,3 +1,5 @@
+#[doc(hidden)]
+pub mod benchmark;
 mod encoding;
 #[cfg(test)]
 mod encoding_tests;
@@ -100,22 +102,35 @@ impl LogStorage {
         let sync_log_config = log_config.clone();
         let sync_interval = config.sync_interval;
         if sync_interval > 0 {
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_millis(sync_interval));
-                loop {
-                    interval.tick().await;
-                    let Some(file_clone) = file_ref.upgrade() else {
-                        break;
-                    };
-                    let mut writer = file_clone.write();
-                    if let Err(e) = writer.flush().and_then(|_| writer.get_ref().sync_data()) {
-                        Logger::error_with_config(
-                            &sync_log_config,
-                            &format!("Failed to flush storage buffer: {}", e),
-                        );
-                    }
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(Duration::from_millis(sync_interval));
+                        loop {
+                            interval.tick().await;
+                            let Some(file_clone) = file_ref.upgrade() else {
+                                break;
+                            };
+                            let mut writer = file_clone.write();
+                            if let Err(e) =
+                                writer.flush().and_then(|_| writer.get_ref().sync_data())
+                            {
+                                Logger::error_with_config(
+                                    &sync_log_config,
+                                    &format!("Failed to flush storage buffer: {}", e),
+                                );
+                            }
+                        }
+                    });
                 }
-            });
+                Err(error) => {
+                    Logger::error_with_config(
+                        log_config,
+                        &format!("Background storage sync disabled: {}", error),
+                    );
+                }
+            }
         }
 
         Logger::info_with_config(

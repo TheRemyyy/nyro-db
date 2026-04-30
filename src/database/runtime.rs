@@ -3,6 +3,7 @@ use dashmap::mapref::entry::Entry;
 use std::sync::Arc;
 
 use crate::database::types::{ModelRuntime, NyroDB};
+use crate::database::validation::SchemaPlan;
 use crate::storage::LogStorage;
 
 impl NyroDB {
@@ -23,13 +24,17 @@ impl NyroDB {
                     })?
                     .clone();
                 let schema = Arc::new(schema);
+                let schema_plan = Arc::new(SchemaPlan::from_schema(&schema)?);
                 let storage = Arc::new(LogStorage::new(
                     model_name,
                     &self.config.storage,
                     &self.config.logging,
                     &schema,
                 )?);
-                let runtime = Arc::new(ModelRuntime { schema, storage });
+                let runtime = Arc::new(ModelRuntime {
+                    schema_plan,
+                    storage,
+                });
                 empty_slot.insert(runtime.clone());
                 Ok(runtime)
             }

@@ -16,7 +16,8 @@ use tokio::sync::Semaphore;
 
 pub use types::NyroDB;
 
-use crate::config::{ModelSchema, NyroConfig};
+use crate::config::NyroConfig;
+use crate::database::validation::SchemaPlan;
 use crate::models::{LogEntry, Operation};
 use crate::utils::logger::Logger;
 use crate::utils::metrics::{Metrics, MetricsReport};
@@ -61,8 +62,11 @@ impl NyroDB {
     pub async fn insert_raw(&self, model_name: &str, data: Value) -> Result<u64> {
         let start = Instant::now();
         let runtime = self.get_runtime(model_name)?;
-        let (id, log_entry) =
-            Self::prepare_insert_entry_for_schema(&runtime.schema, data, current_unix_millis()?)?;
+        let (id, log_entry) = Self::prepare_insert_entry_for_schema(
+            &runtime.schema_plan,
+            data,
+            current_unix_millis()?,
+        )?;
         let realtime_entry = if self.real_time_tx.receiver_count() > 0 {
             Some(log_entry.clone())
         } else {
@@ -86,16 +90,22 @@ impl NyroDB {
         let prepared_rows = if rows.len() >= PARALLEL_PREPARE_THRESHOLD {
             rows.into_par_iter()
                 .map(|row| {
-                    let (id, entry) =
-                        Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
+                    let (id, entry) = Self::prepare_insert_entry_for_schema(
+                        &runtime.schema_plan,
+                        row,
+                        timestamp,
+                    )?;
                     Ok((id, entry))
                 })
                 .collect::<Result<Vec<_>>>()?
         } else {
             rows.into_iter()
                 .map(|row| {
-                    let (id, entry) =
-                        Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
+                    let (id, entry) = Self::prepare_insert_entry_for_schema(
+                        &runtime.schema_plan,
+                        row,
+                        timestamp,
+                    )?;
                     Ok((id, entry))
                 })
                 .collect::<Result<Vec<_>>>()?
@@ -124,7 +134,7 @@ impl NyroDB {
     }
 
     fn prepare_insert_entry_for_schema(
-        schema: &ModelSchema,
+        schema_plan: &SchemaPlan,
         data: Value,
         timestamp: u64,
     ) -> Result<(u64, LogEntry<Value>)> {
@@ -133,15 +143,11 @@ impl NyroDB {
             _ => return Err(anyhow::anyhow!("Data must be a JSON object")),
         };
 
-        validation::validate_data_with_schema(schema, &obj)?;
-        let id = obj
-            .get("id")
-            .and_then(|value| value.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing or invalid 'id' field"))?;
+        let (id, data) = schema_plan.validate_and_filter_owned(obj)?;
         let entry = LogEntry {
             timestamp,
             operation: Operation::Insert,
-            data: Value::Object(validation::filter_data_owned(schema, obj)),
+            data: Value::Object(data),
         };
         Ok((id, entry))
     }

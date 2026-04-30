@@ -21,7 +21,7 @@ pub(crate) struct RawEntry {
 }
 
 pub(crate) struct EncodedEntry {
-    pub(crate) data: Vec<u8>,
+    pub(crate) data: Arc<[u8]>,
     pub(crate) size: u32,
     pub(crate) index_data: Option<IndexData>,
     pub(crate) cache_entry: CachedEntry,
@@ -52,11 +52,27 @@ pub(crate) fn encode_entry(
         field_codecs,
         false,
     )?;
+    let EncodedCore {
+        data,
+        size,
+        operation,
+        index_data,
+    } = core;
+    let data = Arc::from(data);
     let cache_data = match cache_mode {
-        CacheMode::EncodedFrame => CachedData::Encoded(Arc::from(core.data.as_slice())),
+        CacheMode::EncodedFrame => CachedData::Encoded(Arc::clone(&data)),
         CacheMode::ParsedValue => CachedData::Parsed(Arc::new(entry.data.clone())),
     };
-    Ok(core.into_encoded_entry(entry.timestamp, cache_data))
+    Ok(EncodedEntry {
+        data,
+        size,
+        index_data,
+        cache_entry: CachedEntry {
+            timestamp: entry.timestamp,
+            operation,
+            data: cache_data,
+        },
+    })
 }
 
 pub(crate) fn encode_owned_entry(
@@ -75,7 +91,22 @@ pub(crate) fn encode_owned_entry(
         field_codecs,
         false,
     )?;
-    Ok(core.into_encoded_entry(timestamp, CachedData::Parsed(Arc::new(data))))
+    let EncodedCore {
+        data: encoded_data,
+        size,
+        operation,
+        index_data,
+    } = core;
+    Ok(EncodedEntry {
+        data: Arc::from(encoded_data),
+        size,
+        index_data,
+        cache_entry: CachedEntry {
+            timestamp,
+            operation,
+            data: CachedData::Parsed(Arc::new(data)),
+        },
+    })
 }
 
 struct EncodedCore {
@@ -83,21 +114,6 @@ struct EncodedCore {
     size: u32,
     operation: u8,
     index_data: Option<IndexData>,
-}
-
-impl EncodedCore {
-    fn into_encoded_entry(self, timestamp: u64, cache_data: CachedData) -> EncodedEntry {
-        EncodedEntry {
-            data: self.data,
-            size: self.size,
-            index_data: self.index_data,
-            cache_entry: CachedEntry {
-                timestamp,
-                operation: self.operation,
-                data: cache_data,
-            },
-        }
-    }
 }
 
 fn encode_entry_core(
