@@ -44,11 +44,10 @@ impl NyroDB {
             ),
         );
 
-        let (batch_sender, batch_receiver) = mpsc::unbounded_channel();
+        let (batch_sender, batch_receiver) = mpsc::channel(config.performance.max_concurrent_ops);
         let (real_time_tx, _) = tokio::sync::broadcast::channel(10000);
         tokio::spawn(
             batch::BatchProcessor {
-                storages: storages.clone(),
                 receiver: batch_receiver,
                 metrics: metrics.clone(),
                 shutdown_flag: shutdown_flag.clone(),
@@ -273,13 +272,15 @@ impl NyroDB {
     }
 
     async fn insert_batched(&self, model_name: &str, entry: LogEntry<Value>) -> Result<()> {
-        self.get_storage(model_name)?;
+        let storage = self.get_storage(model_name)?;
         let (committed_tx, committed_rx) = oneshot::channel();
-        self.batch_sender.send(BatchOperation::Insert {
-            model_name: model_name.to_string(),
-            entry,
-            committed: committed_tx,
-        })?;
+        self.batch_sender
+            .send(BatchOperation::Insert {
+                storage,
+                entry,
+                committed: committed_tx,
+            })
+            .await?;
 
         committed_rx
             .await

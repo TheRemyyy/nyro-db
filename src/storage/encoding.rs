@@ -68,6 +68,15 @@ fn operation_to_u8(operation: &Operation) -> u8 {
     }
 }
 
+pub(crate) fn operation_from_u8(operation: u8) -> Result<Operation> {
+    match operation {
+        0 => Ok(Operation::Insert),
+        1 => Ok(Operation::Update),
+        2 => Ok(Operation::Delete),
+        invalid => Err(anyhow::anyhow!("Invalid log operation byte: {}", invalid)),
+    }
+}
+
 fn build_index_data(data: &Value, indexed_fields: &HashSet<String>) -> Option<IndexData> {
     let id = data.get("id").and_then(|value| value.as_u64())?;
     let fields = data

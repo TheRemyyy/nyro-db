@@ -1,5 +1,5 @@
-use dashmap::DashMap;
 use serde_json::Value;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -19,9 +19,14 @@ type PendingInsert = (
     tokio::sync::oneshot::Sender<Result<(), String>>,
 );
 
+struct PendingModelBatch {
+    storage: Arc<LogStorage>,
+    model_name: String,
+    entries: Vec<PendingInsert>,
+}
+
 pub(crate) struct BatchProcessor {
-    pub(crate) storages: Arc<DashMap<String, Arc<LogStorage>>>,
-    pub(crate) receiver: mpsc::UnboundedReceiver<BatchOperation>,
+    pub(crate) receiver: mpsc::Receiver<BatchOperation>,
     pub(crate) metrics: Arc<Metrics>,
     pub(crate) shutdown_flag: Arc<AtomicBool>,
     pub(crate) log_config: LoggingConfig,
@@ -43,7 +48,6 @@ impl BatchProcessor {
                         "Processing final batch before shutdown",
                     );
                     process_batch(
-                        &self.storages,
                         &mut batch,
                         &self.metrics,
                         &self.log_config,
@@ -59,16 +63,16 @@ impl BatchProcessor {
                         batch.push(operation);
                         drain_ready_operations(&mut self.receiver, &mut batch, self.batch_size);
                         if batch.len() >= self.batch_size {
-                            process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
+                            process_batch(&mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                         }
                     } else {
-                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
+                        process_batch(&mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                         break;
                     }
                 }
                 _ = interval.tick() => {
                     if !batch.is_empty() {
-                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
+                        process_batch(&mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                     }
                 }
             }
@@ -79,7 +83,7 @@ impl BatchProcessor {
 }
 
 fn drain_ready_operations(
-    receiver: &mut mpsc::UnboundedReceiver<BatchOperation>,
+    receiver: &mut mpsc::Receiver<BatchOperation>,
     batch: &mut Vec<BatchOperation>,
     batch_size: usize,
 ) {
@@ -92,70 +96,130 @@ fn drain_ready_operations(
 }
 
 fn process_batch(
-    storages: &Arc<DashMap<String, Arc<LogStorage>>>,
     batch: &mut Vec<BatchOperation>,
     metrics: &Arc<Metrics>,
     log_config: &LoggingConfig,
     real_time_tx: &tokio::sync::broadcast::Sender<String>,
 ) {
-    let mut grouped: HashMap<String, Vec<PendingInsert>> = HashMap::new();
+    let mut primary_batch = None;
+    let mut grouped_batches = None;
 
     for operation in batch.drain(..) {
         match operation {
             BatchOperation::Insert {
-                model_name,
+                storage,
                 entry,
                 committed,
             } => {
-                grouped
-                    .entry(model_name)
-                    .or_default()
-                    .push((entry, committed));
+                let storage_key = Arc::as_ptr(&storage) as usize;
+                push_pending_insert(
+                    &mut primary_batch,
+                    &mut grouped_batches,
+                    storage_key,
+                    storage,
+                    entry,
+                    committed,
+                );
             }
         }
     }
 
-    for (model_name, entries) in grouped {
-        process_model_batch(
-            storages,
-            &model_name,
-            entries,
-            metrics,
-            log_config,
-            real_time_tx,
-        );
+    if let Some(grouped) = grouped_batches {
+        for (_, pending_batch) in grouped {
+            process_model_batch(pending_batch, metrics, log_config, real_time_tx);
+        }
+    } else if let Some((_, pending_batch)) = primary_batch {
+        process_model_batch(pending_batch, metrics, log_config, real_time_tx);
+    }
+}
+
+fn push_pending_insert(
+    primary_batch: &mut Option<(usize, PendingModelBatch)>,
+    grouped_batches: &mut Option<HashMap<usize, PendingModelBatch>>,
+    storage_key: usize,
+    storage: Arc<LogStorage>,
+    entry: LogEntry<Value>,
+    committed: tokio::sync::oneshot::Sender<Result<(), String>>,
+) {
+    if let Some(grouped) = grouped_batches {
+        push_grouped_insert(grouped, storage_key, storage, entry, committed);
+        return;
+    }
+
+    match primary_batch {
+        Some((primary_key, pending_batch)) if *primary_key == storage_key => {
+            pending_batch.entries.push((entry, committed));
+        }
+        Some(_) => {
+            let Some((primary_key, pending_batch)) = primary_batch.take() else {
+                return;
+            };
+            let mut grouped = HashMap::new();
+            grouped.insert(primary_key, pending_batch);
+            push_grouped_insert(&mut grouped, storage_key, storage, entry, committed);
+            *grouped_batches = Some(grouped);
+        }
+        None => {
+            *primary_batch = Some((storage_key, new_pending_batch(storage, entry, committed)));
+        }
+    }
+}
+
+fn push_grouped_insert(
+    grouped: &mut HashMap<usize, PendingModelBatch>,
+    storage_key: usize,
+    storage: Arc<LogStorage>,
+    entry: LogEntry<Value>,
+    committed: tokio::sync::oneshot::Sender<Result<(), String>>,
+) {
+    match grouped.entry(storage_key) {
+        Entry::Occupied(mut model_batch) => {
+            model_batch.get_mut().entries.push((entry, committed));
+        }
+        Entry::Vacant(empty_slot) => {
+            empty_slot.insert(new_pending_batch(storage, entry, committed));
+        }
+    }
+}
+
+fn new_pending_batch(
+    storage: Arc<LogStorage>,
+    entry: LogEntry<Value>,
+    committed: tokio::sync::oneshot::Sender<Result<(), String>>,
+) -> PendingModelBatch {
+    PendingModelBatch {
+        model_name: storage.model_name().to_string(),
+        entries: vec![(entry, committed)],
+        storage,
     }
 }
 
 fn process_model_batch(
-    storages: &Arc<DashMap<String, Arc<LogStorage>>>,
-    model_name: &str,
-    entries: Vec<PendingInsert>,
+    pending_batch: PendingModelBatch,
     metrics: &Arc<Metrics>,
     log_config: &LoggingConfig,
     real_time_tx: &tokio::sync::broadcast::Sender<String>,
 ) {
     let timer = Instant::now();
-    let result = storages
-        .get(model_name)
-        .ok_or_else(|| anyhow::anyhow!("Storage for model '{}' not found", model_name))
-        .and_then(|storage| {
-            let log_entries = entries.iter().map(|(entry, _)| entry).collect::<Vec<_>>();
-            storage.value().append_many(&log_entries)
-        });
+    let log_entries = pending_batch
+        .entries
+        .iter()
+        .map(|(entry, _)| entry)
+        .collect::<Vec<_>>();
+    let result = pending_batch.storage.append_many(&log_entries);
 
     match result {
         Ok(()) => {
             let elapsed = timer.elapsed();
-            for (entry, committed) in entries {
+            for (entry, committed) in pending_batch.entries {
                 metrics.record_insert(elapsed, metrics.max_samples());
-                publish_insert_event(real_time_tx, log_config, model_name, &entry);
+                publish_insert_event(real_time_tx, log_config, &pending_batch.model_name, &entry);
                 let _ = committed.send(Ok(()));
             }
         }
         Err(error) => {
             let message = error.to_string();
-            for (_, committed) in entries {
+            for (_, committed) in pending_batch.entries {
                 let _ = committed.send(Err(message.clone()));
             }
         }

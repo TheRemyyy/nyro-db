@@ -18,16 +18,17 @@ use std::{
 };
 
 use crate::config::{LoggingConfig, ModelSchema, StorageConfig};
-use crate::models::{LogEntry, Operation};
+use crate::models::LogEntry;
 use crate::utils::logger::Logger;
 
 use dashmap::DashMap;
-use encoding::{EncodedEntry, RawEntry};
+use encoding::{operation_from_u8, EncodedEntry, RawEntry};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
 
 pub struct LogStorage {
+    model_name: Arc<str>,
     file: Arc<RwLock<BufWriter<File>>>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
@@ -70,6 +71,7 @@ impl LogStorage {
         let writer = BufWriter::with_capacity(config.buffer_size, file);
 
         let mut storage = Self {
+            model_name: Arc::from(model_name),
             file: Arc::new(RwLock::new(writer)),
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
@@ -144,6 +146,10 @@ impl LogStorage {
             &format!("Flushed pending writes for {}", self.file_path),
         );
         Ok(())
+    }
+
+    pub(crate) fn model_name(&self) -> &str {
+        &self.model_name
     }
 
     fn setup_mmap(&mut self) -> Result<()> {
@@ -287,14 +293,5 @@ impl LogStorage {
             }
         }
         Ok(results)
-    }
-}
-
-fn operation_from_u8(operation: u8) -> Result<Operation> {
-    match operation {
-        0 => Ok(Operation::Insert),
-        1 => Ok(Operation::Update),
-        2 => Ok(Operation::Delete),
-        invalid => Err(anyhow::anyhow!("Invalid log operation byte: {}", invalid)),
     }
 }

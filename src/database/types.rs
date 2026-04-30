@@ -11,7 +11,7 @@ use crate::utils::metrics::Metrics;
 
 pub struct NyroDB {
     pub(crate) storages: Arc<DashMap<String, Arc<LogStorage>>>,
-    pub(crate) batch_sender: mpsc::UnboundedSender<BatchOperation>,
+    pub(crate) batch_sender: mpsc::Sender<BatchOperation>,
     pub(crate) metrics: Arc<Metrics>,
     pub(crate) shutdown_flag: Arc<AtomicBool>,
     pub(crate) config: NyroConfig,
@@ -19,10 +19,9 @@ pub struct NyroDB {
     pub real_time_tx: tokio::sync::broadcast::Sender<String>,
 }
 
-#[derive(Debug)]
 pub(crate) enum BatchOperation {
     Insert {
-        model_name: String,
+        storage: Arc<LogStorage>,
         entry: LogEntry<Value>,
         committed: oneshot::Sender<Result<(), String>>,
     },
