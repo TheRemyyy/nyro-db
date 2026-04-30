@@ -13,7 +13,8 @@ const PARALLEL_ENCODE_THRESHOLD: usize = 1024;
 
 impl LogStorage {
     pub fn append(&self, entry: &LogEntry<Value>) -> Result<()> {
-        let encoded_entry = encoding::encode_entry(entry, &self.indexed_fields)?;
+        let encoded_entry =
+            encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)?;
         self.append_encoded_entry(encoded_entry)
     }
 
@@ -90,13 +91,15 @@ impl LogStorage {
         if entries.len() >= PARALLEL_ENCODE_THRESHOLD {
             return entries
                 .par_iter()
-                .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+                .map(|entry| {
+                    encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)
+                })
                 .collect::<Result<Vec<_>>>();
         }
 
         entries
             .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs))
             .collect::<Result<Vec<_>>>()
     }
 
@@ -104,13 +107,15 @@ impl LogStorage {
         if entries.len() >= PARALLEL_ENCODE_THRESHOLD {
             return entries
                 .par_iter()
-                .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+                .map(|entry| {
+                    encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs)
+                })
                 .collect::<Result<Vec<_>>>();
         }
 
         entries
             .iter()
-            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields))
+            .map(|entry| encoding::encode_entry(entry, &self.indexed_fields, &self.field_codecs))
             .collect::<Result<Vec<_>>>()
     }
 

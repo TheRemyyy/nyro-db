@@ -1,6 +1,7 @@
 mod encoding;
 mod index;
 mod rebuild;
+mod typed;
 mod writer;
 
 use anyhow::Result;
@@ -25,11 +26,13 @@ use crate::utils::logger::Logger;
 use dashmap::DashMap;
 use encoding::{decode_raw_entry, operation_from_u8};
 use std::sync::atomic::AtomicU64;
+use typed::{field_codecs_from_schema, FieldCodec};
 
 pub struct LogStorage {
     file: Arc<RwLock<BufWriter<File>>>,
     mmap_file: Option<memmap2::Mmap>,
     sync_on_append: bool,
+    field_codecs: Vec<FieldCodec>,
     indexed_fields: HashSet<String>,
     index: Arc<PrimaryIndex>,
     pub secondary_indices: Arc<DashMap<String, DashMap<String, Vec<u64>>>>,
@@ -72,6 +75,7 @@ impl LogStorage {
             file: Arc::new(RwLock::new(writer)),
             mmap_file: None,
             sync_on_append: config.sync_interval == 0,
+            field_codecs: field_codecs_from_schema(schema),
             indexed_fields: schema
                 .fields
                 .iter()
@@ -159,7 +163,7 @@ impl LogStorage {
                 let end = start + 4 + location.size as usize;
                 if end <= mmap.len() {
                     let data = &mmap[start + 4..end];
-                    decode_raw_entry(data)?
+                    decode_raw_entry(data, &self.field_codecs)?
                 } else {
                     return self.decode_cached_entry(indexed_entry);
                 }

@@ -41,7 +41,7 @@ impl LogStorage {
         let mut buffer = vec![0u8; size as usize];
         file.read_exact(&mut buffer)?;
 
-        let raw_entry = decode_raw_entry(&buffer)?;
+        let raw_entry = decode_raw_entry(&buffer, &self.field_codecs)?;
         let data: Value = serde_json::from_slice(&raw_entry.data)?;
         if let Some(id) = data.get("id").and_then(|value| value.as_u64()) {
             self.index.insert(
