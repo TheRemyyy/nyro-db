@@ -1,11 +1,13 @@
 mod nyro_benchmark {
+    pub(crate) mod chunked;
     pub(crate) mod support;
 }
 
 use anyhow::Result;
+use nyro_benchmark::chunked::run_chunked_inserts;
 use nyro_benchmark::support::{
-    environment_report, log_file_size, operation_report, run_get_workers, run_insert_workers,
-    worker_report, EnvironmentReport, OperationReport,
+    environment_report, log_file_size, operation_report, run_insert_workers,
+    run_repeated_get_workers, EnvironmentReport, OperationReport,
 };
 use nyrodb::config::NyroConfig;
 use nyrodb::database::NyroDB;
@@ -18,12 +20,14 @@ use std::time::Instant;
 const WARMUP_ITERATIONS: usize = 1;
 const MEASURED_ITERATIONS: usize = 5;
 const OPERATIONS_PER_ITERATION: u64 = 100_000;
+const GET_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
 const CHUNKED_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
 const CHUNKED_INSERT_CHUNK_SIZE: u64 = 1_024;
 const BULK_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
 const BULK_CHUNK_SIZE: u64 = 1_000_000;
-const CONCURRENCY: usize = 1_024;
-const READ_CONCURRENCY: usize = 256;
+const CONCURRENCY: usize = 1;
+const READ_CONCURRENCY: usize = 64;
+const MAX_CONCURRENT_OPS: usize = 64;
 const BATCH_SIZE: usize = 1_024;
 const BATCH_TIMEOUT_MS: u64 = 100;
 const STORAGE_MODE: &str = "buffered_throughput";
@@ -45,12 +49,14 @@ struct IterationReport {
 #[derive(Debug, Serialize)]
 struct BenchmarkReport {
     operations_per_iteration: u64,
+    get_operations_per_iteration: u64,
     chunked_operations_per_iteration: u64,
     chunked_insert_chunk_size: u64,
     bulk_operations_per_iteration: u64,
     bulk_chunk_size: u64,
     concurrency: usize,
     read_concurrency: usize,
+    max_concurrent_ops: usize,
     single_insert_mode: &'static str,
     configured_batch_size: usize,
     configured_batch_timeout_ms: u64,
@@ -104,12 +110,14 @@ async fn main() -> Result<()> {
 
     let report = BenchmarkReport {
         operations_per_iteration: OPERATIONS_PER_ITERATION,
+        get_operations_per_iteration: GET_OPERATIONS_PER_ITERATION,
         chunked_operations_per_iteration: CHUNKED_OPERATIONS_PER_ITERATION,
         chunked_insert_chunk_size: CHUNKED_INSERT_CHUNK_SIZE,
         bulk_operations_per_iteration: BULK_OPERATIONS_PER_ITERATION,
         bulk_chunk_size: BULK_CHUNK_SIZE,
         concurrency: CONCURRENCY,
         read_concurrency: READ_CONCURRENCY,
+        max_concurrent_ops: MAX_CONCURRENT_OPS,
         single_insert_mode: "direct_writer",
         configured_batch_size: BATCH_SIZE,
         configured_batch_timeout_ms: BATCH_TIMEOUT_MS,
@@ -140,8 +148,13 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     let insert_duration = insert_start.elapsed();
 
     let get_start = Instant::now();
-    let (successful_gets, failed_gets, get_workers) =
-        run_get_workers(db.clone(), OPERATIONS_PER_ITERATION, READ_CONCURRENCY).await;
+    let (successful_gets, failed_gets, get_workers) = run_repeated_get_workers(
+        db.clone(),
+        GET_OPERATIONS_PER_ITERATION,
+        OPERATIONS_PER_ITERATION,
+        READ_CONCURRENCY,
+    )
+    .await;
     let get_duration = get_start.elapsed();
 
     db.shutdown().await?;
@@ -196,43 +209,6 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
     })
 }
 
-async fn run_chunked_inserts(
-    db: Arc<NyroDB>,
-    rows: Vec<Value>,
-    chunk_size: u64,
-) -> (u64, u64, Vec<nyro_benchmark::support::WorkerReport>) {
-    let mut successful = 0;
-    let mut failed = 0;
-    let mut reports = Vec::new();
-    let mut row_iter = rows.into_iter();
-    let chunk_capacity = chunk_size as usize;
-
-    loop {
-        let chunk = row_iter.by_ref().take(chunk_capacity).collect::<Vec<_>>();
-        if chunk.is_empty() {
-            break;
-        }
-        let current_chunk_size = chunk.len() as u64;
-
-        let chunk_start = Instant::now();
-        let mut chunk_successful = 0;
-        let mut chunk_failed = 0;
-        match db.insert_many_raw("user", chunk).await {
-            Ok(ids) => chunk_successful = ids.len() as u64,
-            Err(_) => chunk_failed = current_chunk_size,
-        }
-        successful += chunk_successful;
-        failed += chunk_failed;
-        reports.push(worker_report(
-            chunk_successful,
-            chunk_failed,
-            chunk_start.elapsed(),
-        ));
-    }
-
-    (successful, failed, reports)
-}
-
 fn build_rows(prefix: &str, iteration: usize, count: u64, start_id: u64) -> Vec<Value> {
     (0..count)
         .map(|offset| {
@@ -254,7 +230,7 @@ fn benchmark_config(data_dir: &str) -> NyroConfig {
     config.storage.enable_mmap = false;
     config.performance.batch_size = BATCH_SIZE;
     config.performance.batch_timeout = BATCH_TIMEOUT_MS;
-    config.performance.max_concurrent_ops = CONCURRENCY;
+    config.performance.max_concurrent_ops = MAX_CONCURRENT_OPS;
     config.server.graceful_shutdown_timeout = 0;
     config.logging.level = "off".to_string();
     config.metrics.enable = false;

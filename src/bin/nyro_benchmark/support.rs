@@ -134,9 +134,10 @@ pub(crate) async fn run_insert_workers(
     collect_worker_reports(workers).await
 }
 
-pub(crate) async fn run_get_workers(
+pub(crate) async fn run_repeated_get_workers(
     db: Arc<NyroDB>,
     total_operations: u64,
+    key_count: u64,
     concurrency: usize,
 ) -> (u64, u64, Vec<WorkerReport>) {
     let ranges = partition_ranges(total_operations, concurrency);
@@ -149,7 +150,8 @@ pub(crate) async fn run_get_workers(
             let mut successful = 0;
             let mut failed = 0;
 
-            for id in start_id..end_id {
+            for operation_id in start_id..end_id {
+                let id = operation_id % key_count;
                 match db_clone.get_raw("user", id).await {
                     Ok(Some(_)) => successful += 1,
                     Ok(None) | Err(_) => failed += 1,
