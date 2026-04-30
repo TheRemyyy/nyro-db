@@ -191,6 +191,10 @@ impl LogStorage {
             .get(id)
             .map(|entry| match &entry.cache.data {
                 CachedData::Json(data) => serde_json::from_slice(data).map_err(Into::into),
+                CachedData::Encoded(data) => {
+                    let raw_entry = decode_raw_entry(data, &self.field_codecs)?;
+                    serde_json::from_slice(&raw_entry.data).map_err(Into::into)
+                }
                 CachedData::Parsed(data) => Ok((**data).clone()),
             })
             .transpose()
@@ -202,6 +206,10 @@ impl LogStorage {
     ) -> Result<Option<LogEntry<T>>> {
         let data = match &indexed_entry.cache.data {
             CachedData::Json(data) => serde_json::from_slice(data)?,
+            CachedData::Encoded(data) => {
+                let raw_entry = decode_raw_entry(data, &self.field_codecs)?;
+                serde_json::from_slice(&raw_entry.data)?
+            }
             CachedData::Parsed(data) => serde_json::from_value((**data).clone())?,
         };
         let operation = operation_from_u8(indexed_entry.cache.operation)?;

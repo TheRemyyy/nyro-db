@@ -34,7 +34,7 @@ pub(crate) struct IndexData {
 
 #[derive(Clone, Copy)]
 pub(crate) enum CacheMode {
-    JsonBytes,
+    EncodedFrame,
     ParsedValue,
 }
 
@@ -44,20 +44,16 @@ pub(crate) fn encode_entry(
     field_codecs: &[FieldCodec],
     cache_mode: CacheMode,
 ) -> Result<EncodedEntry> {
-    let mut core = encode_entry_core(
+    let core = encode_entry_core(
         entry.timestamp,
         operation_to_u8(&entry.operation),
         &entry.data,
         indexed_fields,
         field_codecs,
-        matches!(cache_mode, CacheMode::JsonBytes),
+        false,
     )?;
     let cache_data = match cache_mode {
-        CacheMode::JsonBytes => CachedData::Json(Arc::from(
-            core.json_data
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("Missing JSON cache payload"))?,
-        )),
+        CacheMode::EncodedFrame => CachedData::Encoded(Arc::from(core.data.as_slice())),
         CacheMode::ParsedValue => CachedData::Parsed(Arc::new(entry.data.clone())),
     };
     Ok(core.into_encoded_entry(entry.timestamp, cache_data))
@@ -87,7 +83,6 @@ struct EncodedCore {
     size: u32,
     operation: u8,
     index_data: Option<IndexData>,
-    json_data: Option<Vec<u8>>,
 }
 
 impl EncodedCore {
@@ -135,7 +130,6 @@ fn encode_entry_core(
         size,
         operation,
         index_data: build_index_data(entry_data, indexed_fields),
-        json_data,
     })
 }
 

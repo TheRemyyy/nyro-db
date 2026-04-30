@@ -22,6 +22,7 @@ pub(crate) struct CachedEntry {
 #[derive(Clone)]
 pub(crate) enum CachedData {
     Json(Arc<[u8]>),
+    Encoded(Arc<[u8]>),
     Parsed(Arc<Value>),
 }
 

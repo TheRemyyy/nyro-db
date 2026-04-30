@@ -104,7 +104,7 @@ impl LogStorage {
                         entry,
                         &self.indexed_fields,
                         &self.field_codecs,
-                        CacheMode::JsonBytes,
+                        CacheMode::EncodedFrame,
                     )
                 })
                 .collect::<Result<Vec<_>>>();
@@ -117,7 +117,7 @@ impl LogStorage {
                     entry,
                     &self.indexed_fields,
                     &self.field_codecs,
-                    CacheMode::JsonBytes,
+                    CacheMode::EncodedFrame,
                 )
             })
             .collect::<Result<Vec<_>>>()
@@ -132,7 +132,7 @@ impl LogStorage {
                         entry,
                         &self.indexed_fields,
                         &self.field_codecs,
-                        CacheMode::JsonBytes,
+                        CacheMode::EncodedFrame,
                     )
                 })
                 .collect::<Result<Vec<_>>>();
@@ -145,7 +145,7 @@ impl LogStorage {
                     entry,
                     &self.indexed_fields,
                     &self.field_codecs,
-                    CacheMode::JsonBytes,
+                    CacheMode::EncodedFrame,
                 )
             })
             .collect::<Result<Vec<_>>>()
