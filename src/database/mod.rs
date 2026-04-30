@@ -118,17 +118,27 @@ impl NyroDB {
             entries.push(entry);
         }
 
-        runtime.storage.append_entries(&entries)?;
-
-        finish_bulk_insert(
-            &self.metrics,
-            self.config.metrics.max_samples,
-            &self.real_time_tx,
-            &self.config.logging,
-            model_name,
-            &entries,
-            start,
-        );
+        if self.real_time_tx.receiver_count() == 0 {
+            runtime.storage.append_entries_owned(entries)?;
+            if self.metrics.enabled {
+                self.metrics.record_inserts(
+                    ids.len() as u64,
+                    start.elapsed(),
+                    self.config.metrics.max_samples,
+                );
+            }
+        } else {
+            runtime.storage.append_entries(&entries)?;
+            finish_bulk_insert(
+                &self.metrics,
+                self.config.metrics.max_samples,
+                &self.real_time_tx,
+                &self.config.logging,
+                model_name,
+                &entries,
+                start,
+            );
+        }
 
         Ok(ids)
     }

@@ -37,6 +37,15 @@ impl LogStorage {
         self.append_encoded_entries(encoded_entries)
     }
 
+    pub fn append_entries_owned(&self, entries: Vec<LogEntry<Value>>) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let encoded_entries = self.encode_entry_slice(&entries)?;
+        self.append_encoded_entries(encoded_entries)
+    }
+
     pub fn append_many(&self, entries: &[&LogEntry<Value>]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
