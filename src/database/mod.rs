@@ -87,36 +87,7 @@ impl NyroDB {
         let start = Instant::now();
         let timestamp = current_unix_millis()?;
         let runtime = self.get_runtime(model_name)?;
-        let prepared_rows = if rows.len() >= PARALLEL_PREPARE_THRESHOLD {
-            rows.into_par_iter()
-                .map(|row| {
-                    let (id, entry) = Self::prepare_insert_entry_for_schema(
-                        &runtime.schema_plan,
-                        row,
-                        timestamp,
-                    )?;
-                    Ok((id, entry))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            rows.into_iter()
-                .map(|row| {
-                    let (id, entry) = Self::prepare_insert_entry_for_schema(
-                        &runtime.schema_plan,
-                        row,
-                        timestamp,
-                    )?;
-                    Ok((id, entry))
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
-        let mut ids = Vec::with_capacity(prepared_rows.len());
-        let mut entries = Vec::with_capacity(prepared_rows.len());
-
-        for (id, entry) in prepared_rows {
-            ids.push(id);
-            entries.push(entry);
-        }
+        let (ids, entries) = Self::prepare_insert_entries(&runtime.schema_plan, rows, timestamp)?;
 
         if self.real_time_tx.receiver_count() == 0 {
             runtime.storage.append_entries_owned(entries)?;
@@ -160,6 +131,49 @@ impl NyroDB {
             data: Value::Object(data),
         };
         Ok((id, entry))
+    }
+
+    fn prepare_insert_entries(
+        schema_plan: &SchemaPlan,
+        rows: Vec<Value>,
+        timestamp: u64,
+    ) -> Result<(Vec<u64>, Vec<LogEntry<Value>>)> {
+        if rows.len() >= PARALLEL_PREPARE_THRESHOLD {
+            let chunks = rows
+                .into_par_iter()
+                .chunks(PARALLEL_PREPARE_THRESHOLD)
+                .map(|chunk| Self::prepare_insert_chunk(schema_plan, chunk, timestamp))
+                .collect::<Result<Vec<_>>>()?;
+            let total_len = chunks.iter().map(|(ids, _)| ids.len()).sum();
+            let mut ids = Vec::with_capacity(total_len);
+            let mut entries = Vec::with_capacity(total_len);
+
+            for (mut chunk_ids, mut chunk_entries) in chunks {
+                ids.append(&mut chunk_ids);
+                entries.append(&mut chunk_entries);
+            }
+
+            return Ok((ids, entries));
+        }
+
+        Self::prepare_insert_chunk(schema_plan, rows, timestamp)
+    }
+
+    fn prepare_insert_chunk(
+        schema_plan: &SchemaPlan,
+        rows: Vec<Value>,
+        timestamp: u64,
+    ) -> Result<(Vec<u64>, Vec<LogEntry<Value>>)> {
+        let mut ids = Vec::with_capacity(rows.len());
+        let mut entries = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            let (id, entry) = Self::prepare_insert_entry_for_schema(schema_plan, row, timestamp)?;
+            ids.push(id);
+            entries.push(entry);
+        }
+
+        Ok((ids, entries))
     }
 
     pub async fn get_raw(&self, model_name: &str, id: u64) -> Result<Option<Value>> {
