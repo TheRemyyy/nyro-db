@@ -60,13 +60,19 @@ impl LogStorage {
         let mut offset = self
             .current_offset
             .load(std::sync::atomic::Ordering::Acquire);
-        let mut committed_entries = Vec::with_capacity(encoded_entries.len());
+        let mut primary_entries = Vec::with_capacity(encoded_entries.len());
+        let mut secondary_entries = Vec::new();
 
         for encoded_entry in encoded_entries {
             let entry_size = encoded_entry.size;
             file.write_all(&encoded_entry.size.to_le_bytes())?;
             file.write_all(&encoded_entry.data)?;
-            committed_entries.push((offset, encoded_entry));
+            Self::prepare_index_publish(
+                offset,
+                encoded_entry,
+                &mut primary_entries,
+                &mut secondary_entries,
+            );
             offset += 4 + entry_size as u64;
         }
         if self.sync_on_append {
@@ -76,7 +82,7 @@ impl LogStorage {
 
         self.current_offset
             .store(offset, std::sync::atomic::Ordering::SeqCst);
-        self.insert_indexes_many(committed_entries);
+        self.publish_prepared_indexes(primary_entries, secondary_entries);
 
         Ok(())
     }
@@ -182,29 +188,35 @@ impl LogStorage {
         }
     }
 
-    fn insert_indexes_many(&self, committed_entries: Vec<(u64, EncodedEntry)>) {
-        let mut primary_entries = Vec::with_capacity(committed_entries.len());
-        let mut secondary_entries = Vec::new();
-
-        for (offset, encoded_entry) in committed_entries {
-            let Some(index_data) = encoded_entry.index_data else {
-                continue;
-            };
-            primary_entries.push((
-                index_data.id,
-                IndexedEntry {
-                    location: EntryLocation {
-                        offset,
-                        size: encoded_entry.size,
-                    },
-                    cache: encoded_entry.cache_entry,
+    fn prepare_index_publish(
+        offset: u64,
+        encoded_entry: EncodedEntry,
+        primary_entries: &mut Vec<(u64, IndexedEntry)>,
+        secondary_entries: &mut Vec<(String, String, u64)>,
+    ) {
+        let Some(index_data) = encoded_entry.index_data else {
+            return;
+        };
+        primary_entries.push((
+            index_data.id,
+            IndexedEntry {
+                location: EntryLocation {
+                    offset,
+                    size: encoded_entry.size,
                 },
-            ));
-            for (field, value) in index_data.fields {
-                secondary_entries.push((field, value, index_data.id));
-            }
+                cache: encoded_entry.cache_entry,
+            },
+        ));
+        for (field, value) in index_data.fields {
+            secondary_entries.push((field, value, index_data.id));
         }
+    }
 
+    fn publish_prepared_indexes(
+        &self,
+        primary_entries: Vec<(u64, IndexedEntry)>,
+        secondary_entries: Vec<(String, String, u64)>,
+    ) {
         self.index.insert_many(primary_entries);
         for (field, value, id) in secondary_entries {
             let field_idx = self.secondary_indices.entry(field).or_default();
