@@ -85,18 +85,18 @@ impl NyroDB {
             return Ok(storage.clone());
         }
 
-        let schema = self.config.models.get(model_name).ok_or_else(|| {
-            anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
-        })?;
-        let new_storage = Arc::new(LogStorage::new(
-            model_name,
-            &self.config.storage,
-            &self.config.logging,
-            schema,
-        )?);
         match self.storages.entry(model_name.to_string()) {
             Entry::Occupied(existing_storage) => Ok(existing_storage.get().clone()),
             Entry::Vacant(empty_slot) => {
+                let schema = self.config.models.get(model_name).ok_or_else(|| {
+                    anyhow::anyhow!("Model '{}' not defined in configuration", model_name)
+                })?;
+                let new_storage = Arc::new(LogStorage::new(
+                    model_name,
+                    &self.config.storage,
+                    &self.config.logging,
+                    schema,
+                )?);
                 empty_slot.insert(new_storage.clone());
                 Ok(new_storage)
             }

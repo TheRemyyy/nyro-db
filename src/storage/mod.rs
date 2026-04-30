@@ -91,18 +91,25 @@ impl LogStorage {
             storage.setup_mmap()?;
         }
 
-        let file_clone = Arc::clone(&storage.file);
+        let file_ref = Arc::downgrade(&storage.file);
+        let sync_log_config = log_config.clone();
         let sync_interval = config.sync_interval;
         if sync_interval > 0 {
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(sync_interval));
                 loop {
                     interval.tick().await;
+                    let Some(file_clone) = file_ref.upgrade() else {
+                        break;
+                    };
                     if let Ok(mut writer) = file_clone.write() {
                         if let Err(e) = writer.flush().and_then(|_| writer.get_ref().sync_data()) {
-                            eprintln!("[ERROR] Failed to flush storage buffer: {}", e);
+                            Logger::error_with_config(
+                                &sync_log_config,
+                                &format!("Failed to flush storage buffer: {}", e),
+                            );
                         }
-                    }
+                    };
                 }
             });
         }
@@ -239,12 +246,7 @@ impl LogStorage {
             };
 
             let data: T = serde_json::from_slice(&raw_entry.data)?;
-            let operation = match raw_entry.operation {
-                0 => Operation::Insert,
-                1 => Operation::Update,
-                2 => Operation::Delete,
-                _ => Operation::Insert,
-            };
+            let operation = operation_from_u8(raw_entry.operation)?;
 
             Ok(Some(LogEntry {
                 timestamp: raw_entry.timestamp,
@@ -268,12 +270,7 @@ impl LogStorage {
         indexed_entry: IndexedEntry,
     ) -> Result<Option<LogEntry<T>>> {
         let data = serde_json::from_slice(&indexed_entry.cache.data)?;
-        let operation = match indexed_entry.cache.operation {
-            0 => Operation::Insert,
-            1 => Operation::Update,
-            2 => Operation::Delete,
-            _ => Operation::Insert,
-        };
+        let operation = operation_from_u8(indexed_entry.cache.operation)?;
 
         Ok(Some(LogEntry {
             timestamp: indexed_entry.cache.timestamp,
@@ -285,10 +282,19 @@ impl LogStorage {
     pub fn get_all<T: for<'de> Deserialize<'de>>(&self) -> Result<Vec<LogEntry<T>>> {
         let mut results = Vec::new();
         for id in self.index.ids() {
-            if let Ok(Some(entry)) = self.get(id) {
+            if let Some(entry) = self.get(id)? {
                 results.push(entry);
             }
         }
         Ok(results)
+    }
+}
+
+fn operation_from_u8(operation: u8) -> Result<Operation> {
+    match operation {
+        0 => Ok(Operation::Insert),
+        1 => Ok(Operation::Update),
+        2 => Ok(Operation::Delete),
+        invalid => Err(anyhow::anyhow!("Invalid log operation byte: {}", invalid)),
     }
 }

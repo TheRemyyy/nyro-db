@@ -7,6 +7,7 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use crate::config::LoggingConfig;
+use crate::database::helpers::publish_insert_event;
 use crate::database::types::BatchOperation;
 use crate::models::LogEntry;
 use crate::storage::LogStorage;
@@ -47,8 +48,7 @@ impl BatchProcessor {
                         &self.metrics,
                         &self.log_config,
                         &self.real_time_tx,
-                    )
-                    .await;
+                    );
                 }
                 break;
             }
@@ -57,17 +57,18 @@ impl BatchProcessor {
                 operation = self.receiver.recv() => {
                     if let Some(operation) = operation {
                         batch.push(operation);
+                        drain_ready_operations(&mut self.receiver, &mut batch, self.batch_size);
                         if batch.len() >= self.batch_size {
-                            process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx).await;
+                            process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                         }
                     } else {
-                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx).await;
+                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                         break;
                     }
                 }
                 _ = interval.tick() => {
                     if !batch.is_empty() {
-                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx).await;
+                        process_batch(&self.storages, &mut batch, &self.metrics, &self.log_config, &self.real_time_tx);
                     }
                 }
             }
@@ -77,7 +78,20 @@ impl BatchProcessor {
     }
 }
 
-async fn process_batch(
+fn drain_ready_operations(
+    receiver: &mut mpsc::UnboundedReceiver<BatchOperation>,
+    batch: &mut Vec<BatchOperation>,
+    batch_size: usize,
+) {
+    while batch.len() < batch_size {
+        match receiver.try_recv() {
+            Ok(operation) => batch.push(operation),
+            Err(_) => break,
+        }
+    }
+}
+
+fn process_batch(
     storages: &Arc<DashMap<String, Arc<LogStorage>>>,
     batch: &mut Vec<BatchOperation>,
     metrics: &Arc<Metrics>,
@@ -135,7 +149,7 @@ fn process_model_batch(
             let elapsed = timer.elapsed();
             for (entry, committed) in entries {
                 metrics.record_insert(elapsed, metrics.max_samples());
-                publish_insert(real_time_tx, model_name, &entry, log_config);
+                publish_insert_event(real_time_tx, log_config, model_name, &entry);
                 let _ = committed.send(Ok(()));
             }
         }
@@ -145,29 +159,5 @@ fn process_model_batch(
                 let _ = committed.send(Err(message.clone()));
             }
         }
-    }
-}
-
-fn publish_insert(
-    real_time_tx: &tokio::sync::broadcast::Sender<String>,
-    model_name: &str,
-    entry: &LogEntry<Value>,
-    log_config: &LoggingConfig,
-) {
-    if real_time_tx.receiver_count() == 0 {
-        return;
-    }
-
-    match serde_json::to_string(&entry.data) {
-        Ok(data) => {
-            let _ = real_time_tx.send(format!("INSERT:{}:{}", model_name, data));
-        }
-        Err(error) => Logger::error_with_config(
-            log_config,
-            &format!(
-                "Failed to serialize realtime event for {}: {}",
-                model_name, error
-            ),
-        ),
     }
 }
