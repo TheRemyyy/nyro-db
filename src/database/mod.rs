@@ -27,6 +27,8 @@ use helpers::{
 };
 use types::BatchOperation;
 
+const PARALLEL_PREPARE_THRESHOLD: usize = 2_048;
+
 impl NyroDB {
     pub fn new(config: NyroConfig) -> Self {
         let storages = Arc::new(DashMap::new());
@@ -99,14 +101,25 @@ impl NyroDB {
         let start = Instant::now();
         let timestamp = current_unix_millis()?;
         let runtime = self.get_runtime(model_name)?;
-        let prepared_rows = rows
-            .into_par_iter()
-            .map(|row| {
-                let entry = Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
-                let id = entry_id(&entry)?;
-                Ok((id, entry))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let prepared_rows = if rows.len() >= PARALLEL_PREPARE_THRESHOLD {
+            rows.into_par_iter()
+                .map(|row| {
+                    let entry =
+                        Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
+                    let id = entry_id(&entry)?;
+                    Ok((id, entry))
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            rows.into_iter()
+                .map(|row| {
+                    let entry =
+                        Self::prepare_insert_entry_for_schema(&runtime.schema, row, timestamp)?;
+                    let id = entry_id(&entry)?;
+                    Ok((id, entry))
+                })
+                .collect::<Result<Vec<_>>>()?
+        };
         let mut ids = Vec::with_capacity(prepared_rows.len());
         let mut entries = Vec::with_capacity(prepared_rows.len());
 

@@ -71,6 +71,12 @@ pub fn create_routes(
         .and(db_filter.clone())
         .and_then(handlers::insert_handler);
 
+    let insert_many_route = warp::path!("insert_many" / String)
+        .and(warp::post())
+        .and(warp::body::json())
+        .and(db_filter.clone())
+        .and_then(handlers::insert_many_handler);
+
     let get_route = warp::path!("get" / String / u64)
         .and(warp::get())
         .and(db_filter.clone())
@@ -114,6 +120,7 @@ pub fn create_routes(
     let auth = with_auth(db.clone());
 
     let routes = insert_route
+        .or(insert_many_route)
         .or(get_route)
         .or(query_route)
         .or(query_field_route)

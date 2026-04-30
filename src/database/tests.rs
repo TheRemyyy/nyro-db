@@ -129,6 +129,59 @@ async fn concurrent_first_inserts_keep_one_readable_storage() -> anyhow::Result<
     Ok(())
 }
 
+#[tokio::test]
+async fn insert_many_returns_readable_persisted_rows() -> anyhow::Result<()> {
+    let config = test_config("insert_many");
+    cleanup_path(&config.storage.data_dir)?;
+
+    let db = NyroDB::new(config.clone());
+    let ids = db
+        .insert_many_raw(
+            "user",
+            vec![
+                json!({
+                    "id": 101,
+                    "email": "user101@test.com",
+                    "hash_password": "hash_101",
+                    "created_at": 101
+                }),
+                json!({
+                    "id": 102,
+                    "email": "user102@test.com",
+                    "hash_password": "hash_102",
+                    "created_at": 102
+                }),
+            ],
+        )
+        .await?;
+
+    assert_eq!(ids, vec![101, 102]);
+    assert_eq!(
+        db.get_raw("user", 101).await?,
+        Some(json!({
+            "id": 101,
+            "email": "user101@test.com",
+            "hash_password": "hash_101",
+            "created_at": 101
+        }))
+    );
+    db.shutdown().await?;
+
+    let reopened = NyroDB::new(config.clone());
+    assert_eq!(
+        reopened.get_raw("user", 102).await?,
+        Some(json!({
+            "id": 102,
+            "email": "user102@test.com",
+            "hash_password": "hash_102",
+            "created_at": 102
+        }))
+    );
+    reopened.shutdown().await?;
+    cleanup_data_dir(&config.storage.data_dir)?;
+    Ok(())
+}
+
 fn test_config(name: &str) -> NyroConfig {
     let mut config = NyroConfig::default();
     config.storage.data_dir = parent_temp_dir().join(name).to_string_lossy().into_owned();

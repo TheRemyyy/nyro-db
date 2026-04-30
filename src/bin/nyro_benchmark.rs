@@ -18,6 +18,8 @@ use std::time::Instant;
 const WARMUP_ITERATIONS: usize = 1;
 const MEASURED_ITERATIONS: usize = 5;
 const OPERATIONS_PER_ITERATION: u64 = 100_000;
+const CHUNKED_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
+const CHUNKED_INSERT_CHUNK_SIZE: u64 = 1_024;
 const BULK_OPERATIONS_PER_ITERATION: u64 = 1_000_000;
 const BULK_CHUNK_SIZE: u64 = 1_000_000;
 const CONCURRENCY: usize = 1_024;
@@ -33,14 +35,18 @@ struct IterationReport {
     warmup: bool,
     insert: OperationReport,
     get: OperationReport,
+    chunked_insert: OperationReport,
     bulk_insert: OperationReport,
     insert_log_file_bytes: u64,
+    chunked_log_file_bytes: u64,
     bulk_log_file_bytes: u64,
 }
 
 #[derive(Debug, Serialize)]
 struct BenchmarkReport {
     operations_per_iteration: u64,
+    chunked_operations_per_iteration: u64,
+    chunked_insert_chunk_size: u64,
     bulk_operations_per_iteration: u64,
     bulk_chunk_size: u64,
     concurrency: usize,
@@ -53,6 +59,7 @@ struct BenchmarkReport {
     row_shape: RowShapeReport,
     measured_insert_ops_per_sec: Stats,
     measured_get_ops_per_sec: Stats,
+    measured_chunked_insert_ops_per_sec: Stats,
     measured_bulk_insert_ops_per_sec: Stats,
     iterations: Vec<IterationReport>,
 }
@@ -89,9 +96,15 @@ async fn main() -> Result<()> {
         .iter()
         .map(|report| report.bulk_insert.ops_per_sec)
         .collect::<Vec<_>>();
+    let chunked_insert_rates = measured
+        .iter()
+        .map(|report| report.chunked_insert.ops_per_sec)
+        .collect::<Vec<_>>();
 
     let report = BenchmarkReport {
         operations_per_iteration: OPERATIONS_PER_ITERATION,
+        chunked_operations_per_iteration: CHUNKED_OPERATIONS_PER_ITERATION,
+        chunked_insert_chunk_size: CHUNKED_INSERT_CHUNK_SIZE,
         bulk_operations_per_iteration: BULK_OPERATIONS_PER_ITERATION,
         bulk_chunk_size: BULK_CHUNK_SIZE,
         concurrency: CONCURRENCY,
@@ -104,6 +117,7 @@ async fn main() -> Result<()> {
         row_shape: row_shape_report()?,
         measured_insert_ops_per_sec: stats(&insert_rates),
         measured_get_ops_per_sec: stats(&get_rates),
+        measured_chunked_insert_ops_per_sec: stats(&chunked_insert_rates),
         measured_bulk_insert_ops_per_sec: stats(&bulk_insert_rates),
         iterations: reports,
     };
@@ -131,11 +145,21 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
 
     db.shutdown().await?;
     cleanup_path(&data_dir)?;
+    let chunked_db = Arc::new(NyroDB::new(benchmark_config(&data_dir)));
+    let chunked_rows = build_rows("chunked", iteration, CHUNKED_OPERATIONS_PER_ITERATION, 0);
+    let chunked_start = Instant::now();
+    let (successful_chunked_inserts, failed_chunked_inserts, chunked_workers) =
+        run_chunked_inserts(chunked_db.clone(), chunked_rows, CHUNKED_INSERT_CHUNK_SIZE).await;
+    let chunked_insert_duration = chunked_start.elapsed();
+    let chunked_log_file_bytes = log_file_size(&data_dir, "user");
+    chunked_db.shutdown().await?;
+    cleanup_path(&data_dir)?;
+
     let bulk_db = Arc::new(NyroDB::new(benchmark_config(&data_dir)));
     let bulk_rows = build_rows("bulk", iteration, BULK_OPERATIONS_PER_ITERATION, 0);
     let bulk_start = Instant::now();
     let (successful_bulk_inserts, failed_bulk_inserts, bulk_workers) =
-        run_bulk_inserts(bulk_db.clone(), bulk_rows).await;
+        run_chunked_inserts(bulk_db.clone(), bulk_rows, BULK_CHUNK_SIZE).await;
     let bulk_insert_duration = bulk_start.elapsed();
     let bulk_log_file_bytes = log_file_size(&data_dir, "user");
     bulk_db.shutdown().await?;
@@ -152,6 +176,12 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
             &insert_workers,
         ),
         get: operation_report(successful_gets, failed_gets, get_duration, &get_workers),
+        chunked_insert: operation_report(
+            successful_chunked_inserts,
+            failed_chunked_inserts,
+            chunked_insert_duration,
+            &chunked_workers,
+        ),
         bulk_insert: operation_report(
             successful_bulk_inserts,
             failed_bulk_inserts,
@@ -159,30 +189,35 @@ async fn run_iteration(iteration: usize, warmup: bool) -> Result<IterationReport
             &bulk_workers,
         ),
         insert_log_file_bytes,
+        chunked_log_file_bytes,
         bulk_log_file_bytes,
     })
 }
 
-async fn run_bulk_inserts(
+async fn run_chunked_inserts(
     db: Arc<NyroDB>,
-    mut rows: Vec<Value>,
+    rows: Vec<Value>,
+    chunk_size: u64,
 ) -> (u64, u64, Vec<nyro_benchmark::support::WorkerReport>) {
     let mut successful = 0;
     let mut failed = 0;
     let mut reports = Vec::new();
+    let mut row_iter = rows.into_iter();
+    let chunk_capacity = chunk_size as usize;
 
-    while !rows.is_empty() {
-        let take_count = (BULK_CHUNK_SIZE as usize).min(rows.len());
-        let remaining = rows.split_off(take_count);
-        let chunk = std::mem::replace(&mut rows, remaining);
-        let chunk_size = chunk.len() as u64;
+    loop {
+        let chunk = row_iter.by_ref().take(chunk_capacity).collect::<Vec<_>>();
+        if chunk.is_empty() {
+            break;
+        }
+        let current_chunk_size = chunk.len() as u64;
 
         let chunk_start = Instant::now();
         let mut chunk_successful = 0;
         let mut chunk_failed = 0;
         match db.insert_many_raw("user", chunk).await {
             Ok(ids) => chunk_successful = ids.len() as u64,
-            Err(_) => chunk_failed = chunk_size,
+            Err(_) => chunk_failed = current_chunk_size,
         }
         successful += chunk_successful;
         failed += chunk_failed;
@@ -239,15 +274,19 @@ fn row_shape_report() -> Result<RowShapeReport> {
 
 fn ensure_no_failures(reports: &[IterationReport]) -> Result<()> {
     let failed_report = reports.iter().find(|report| {
-        report.insert.failed > 0 || report.get.failed > 0 || report.bulk_insert.failed > 0
+        report.insert.failed > 0
+            || report.get.failed > 0
+            || report.chunked_insert.failed > 0
+            || report.bulk_insert.failed > 0
     });
 
     if let Some(report) = failed_report {
         return Err(anyhow::anyhow!(
-            "Benchmark iteration {} had {} failed inserts, {} failed gets, and {} failed bulk inserts",
+            "Benchmark iteration {} had {} failed inserts, {} failed gets, {} failed chunked inserts, and {} failed bulk inserts",
             report.iteration,
             report.insert.failed,
             report.get.failed,
+            report.chunked_insert.failed,
             report.bulk_insert.failed
         ));
     }

@@ -39,6 +39,38 @@ pub async fn insert_handler(
     }
 }
 
+pub async fn insert_many_handler(
+    model_name: String,
+    rows: Vec<Value>,
+    db: Arc<NyroDB>,
+) -> Result<Box<dyn Reply>, warp::Rejection> {
+    let limiter = db.get_concurrency_limiter();
+    let _permit = limiter
+        .acquire()
+        .await
+        .map_err(|_| warp::reject::reject())?;
+
+    match db.insert_many_raw(&model_name, rows).await {
+        Ok(ids) => {
+            Logger::info_with_config(
+                &db.get_config().logging,
+                &format!("Inserted {} rows into '{}'", ids.len(), model_name),
+            );
+            Ok(json_status(
+                serde_json::json!({ "count": ids.len(), "ids": ids }),
+                StatusCode::CREATED,
+            ))
+        }
+        Err(e) => {
+            Logger::error_with_config(
+                &db.get_config().logging,
+                &format!("Failed to insert many rows into '{}': {}", model_name, e),
+            );
+            Ok(error_status(e.to_string(), StatusCode::BAD_REQUEST))
+        }
+    }
+}
+
 pub async fn get_handler(
     model_name: String,
     id: u64,
