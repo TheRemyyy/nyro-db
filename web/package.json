@@ -13,6 +13,7 @@
     "@types/highlight.js": "^9.12.4",
     "@vercel/analytics": "^1.4.0",
     "clsx": "^2.1.1",
+    "dompurify": "^3.3.0",
     "framer-motion": "^12.23.26",
     "highlight.js": "^11.11.1",
     "lucide-react": "^0.562.0",

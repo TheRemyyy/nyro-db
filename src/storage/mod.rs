@@ -25,6 +25,7 @@ pub struct RawEntry {
 pub struct LogStorage {
     file: Arc<RwLock<BufWriter<File>>>,
     mmap_file: Option<memmap2::Mmap>,
+    sync_on_append: bool,
     pub index: Arc<DashMap<u64, (u64, u32)>>,
     pub secondary_indices: Arc<DashMap<String, DashMap<String, Vec<u64>>>>,
     pub file_path: String,
@@ -64,6 +65,7 @@ impl LogStorage {
         let mut storage = Self {
             file: Arc::new(RwLock::new(writer)),
             mmap_file: None,
+            sync_on_append: config.sync_interval == 0,
             index: Arc::new(DashMap::new()),
             secondary_indices: Arc::new(DashMap::new()),
             file_path: file_path.clone(),
@@ -84,7 +86,7 @@ impl LogStorage {
                 loop {
                     interval.tick().await;
                     if let Ok(mut writer) = file_clone.write() {
-                        if let Err(e) = writer.flush() {
+                        if let Err(e) = writer.flush().and_then(|_| writer.get_ref().sync_data()) {
                             eprintln!("[ERROR] Failed to flush storage buffer: {}", e);
                         }
                     }
@@ -95,11 +97,15 @@ impl LogStorage {
         Logger::info_with_config(
             log_config,
             &format!(
-                "Initialized storage for model: {} (buffer: {}KB, mmap: {}, sync: {}ms)",
+                "Initialized storage for model: {} (buffer: {}KB, mmap: {}, sync: {})",
                 model_name,
                 config.buffer_size / 1024,
                 config.enable_mmap,
-                sync_interval
+                if sync_interval == 0 {
+                    "every write".to_string()
+                } else {
+                    format!("{}ms", sync_interval)
+                }
             ),
         );
 
@@ -107,13 +113,16 @@ impl LogStorage {
     }
 
     pub fn shutdown(&self, log_config: &LoggingConfig) -> Result<()> {
-        if let Ok(mut file) = self.file.write() {
-            file.flush()?;
-            Logger::info_with_config(
-                log_config,
-                &format!("Flushed pending writes for {}", self.file_path),
-            );
-        }
+        let mut file = self
+            .file
+            .write()
+            .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
+        file.flush()?;
+        file.get_ref().sync_data()?;
+        Logger::info_with_config(
+            log_config,
+            &format!("Flushed pending writes for {}", self.file_path),
+        );
         Ok(())
     }
 
@@ -140,11 +149,18 @@ impl LogStorage {
 
         let serialized = bincode::serialize(&raw_entry)?;
         let size = serialized.len() as u32;
-        let mut file = self.file.write().unwrap();
+        let mut file = self
+            .file
+            .write()
+            .map_err(|_| anyhow::anyhow!("Storage writer lock poisoned"))?;
         let offset = self.current_offset.load(Ordering::Acquire);
 
         file.write_all(&size.to_le_bytes())?;
         file.write_all(&serialized)?;
+        file.flush()?;
+        if self.sync_on_append {
+            file.get_ref().sync_data()?;
+        }
 
         if let Some(id) = entry.data.get("id").and_then(|v| v.as_u64()) {
             self.index.insert(id, (offset, size));

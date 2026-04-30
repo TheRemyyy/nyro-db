@@ -13,6 +13,7 @@ pub struct Metrics {
     pub insert_times: Arc<RwLock<Vec<Duration>>>,
     pub get_times: Arc<RwLock<Vec<Duration>>>,
     pub enabled: bool,
+    max_samples: usize,
 }
 
 impl Metrics {
@@ -25,7 +26,12 @@ impl Metrics {
             insert_times: Arc::new(RwLock::new(Vec::with_capacity(config.max_samples))),
             get_times: Arc::new(RwLock::new(Vec::with_capacity(config.max_samples))),
             enabled: config.enable,
+            max_samples: config.max_samples,
         }
+    }
+
+    pub fn max_samples(&self) -> usize {
+        self.max_samples
     }
 
     pub fn record_insert(&self, duration: Duration, max_samples: usize) {
@@ -61,21 +67,22 @@ impl Metrics {
         self.total_queries.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn record_batch_insert(&self) {
-        if !self.enabled {
-            return;
-        }
-        self.total_inserts.fetch_add(1, Ordering::Relaxed);
-    }
-
     pub fn get_stats(&self) -> MetricsReport {
         let uptime = self.start_time.elapsed();
         let total_inserts = self.total_inserts.load(Ordering::Relaxed);
         let total_gets = self.total_gets.load(Ordering::Relaxed);
         let total_queries = self.total_queries.load(Ordering::Relaxed);
 
-        let insert_times = self.insert_times.read().unwrap();
-        let get_times = self.get_times.read().unwrap();
+        let insert_times = self
+            .insert_times
+            .read()
+            .map(|times| times.clone())
+            .unwrap_or_default();
+        let get_times = self
+            .get_times
+            .read()
+            .map(|times| times.clone())
+            .unwrap_or_default();
 
         let avg_insert_latency = if !insert_times.is_empty() {
             insert_times.iter().sum::<Duration>().as_nanos() as f64 / insert_times.len() as f64
@@ -89,7 +96,7 @@ impl Metrics {
             0.0
         };
 
-        let mut sorted_inserts = insert_times.clone();
+        let mut sorted_inserts = insert_times;
         sorted_inserts.sort();
         let p99_insert = if !sorted_inserts.is_empty() {
             let idx = (sorted_inserts.len() as f64 * 0.99) as usize;

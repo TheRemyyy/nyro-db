@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import { motion } from 'framer-motion';
@@ -11,10 +12,11 @@ export default function Changelog() {
         const fetchChangelog = async () => {
             try {
                 const res = await fetch('/CHANGELOG.md');
+                if (!res.ok) throw new Error('Changelog not found');
                 const text = await res.text();
                 marked.use({ gfm: true, breaks: true });
-                setHtml(await marked.parse(text));
-            } catch (err) {
+                setHtml(DOMPurify.sanitize(await marked.parse(text)));
+            } catch {
                 setHtml('<h1>Changelog not found</h1>');
             }
         };

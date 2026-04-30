@@ -1,35 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { ChevronRight, Database, Server, Cpu, BookOpen, Code, Settings } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-export const DOCS_NAV = [
-    {
-        title: 'Introduction',
-        items: [
-            { title: 'Overview', path: '/docs/overview', icon: BookOpen },
-        ]
-    },
-    {
-        title: 'Getting Started',
-        items: [
-            { title: 'Installation', path: '/docs/getting_started/installation', icon: Server },
-            { title: 'Configuration', path: '/docs/getting_started/configuration', icon: Settings },
-        ]
-    },
-    {
-        title: 'API Reference',
-        items: [
-            { title: 'REST API', path: '/docs/api/rest', icon: Code },
-            { title: 'Real-Time API', path: '/docs/api/realtime', icon: Database },
-        ]
-    },
-    {
-        title: 'Internals',
-        items: [
-            { title: 'Architecture', path: '/docs/internals/architecture', icon: Cpu },
-        ]
-    }
-];
+import { DOCS_NAV } from './docsNav';
 
 export function Sidebar({ onClose }: { onClose?: () => void }) {
     const location = useLocation();

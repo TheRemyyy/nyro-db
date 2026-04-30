@@ -6,6 +6,7 @@ mod storage;
 mod utils;
 
 use anyhow::Result;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -72,19 +73,14 @@ async fn main() -> Result<()> {
         }
     });
 
-    let host_str = &config.server.host;
-    let port = config.server.port;
-    let host_ip: [u8; 4] = host_str
-        .split('.')
-        .map(|s| s.parse::<u8>())
-        .collect::<Result<Vec<u8>, _>>()
-        .map(|v| [v[0], v[1], v[2], v[3]])
-        .unwrap_or([127, 0, 0, 1]);
+    let bind_addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port)
+        .parse()
+        .map_err(|error| anyhow::anyhow!("Invalid server bind address: {}", error))?;
 
     Logger::info_with_config(
         &config.logging,
-        &format!("Server starting on http://{}:{}", host_str, port),
+        &format!("Server starting on http://{}", bind_addr),
     );
-    warp::serve(routes).run((host_ip, port)).await;
+    warp::serve(routes).run(bind_addr).await;
     Ok(())
 }

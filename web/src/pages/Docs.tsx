@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
-import { Sidebar, DOCS_NAV } from '../components/Sidebar';
+import { Sidebar } from '../components/Sidebar';
+import { DOCS_NAV } from '../components/docsNav';
 import { Menu, X, ChevronRight, ChevronLeft } from 'lucide-react';
 
 export default function Docs() {
@@ -41,7 +43,7 @@ export default function Docs() {
                     breaks: true, // Render newlines as <br>
                 });
 
-                setContent(marked.parse(text) as string);
+                setContent(DOMPurify.sanitize(marked.parse(text) as string));
 
                 // Ensure scroll happens after render and paint
                 setTimeout(() => {

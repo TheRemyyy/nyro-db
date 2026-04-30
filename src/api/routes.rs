@@ -3,7 +3,7 @@ use std::sync::Arc;
 use warp::http::StatusCode;
 use warp::{Filter, Rejection, Reply};
 
-use crate::api::handlers;
+use crate::api::{benchmark, handlers};
 use crate::database::NyroDB;
 
 #[derive(Debug)]
@@ -19,11 +19,25 @@ fn with_auth(db: Arc<NyroDB>) -> impl Filter<Extract = (), Error = warp::Rejecti
                 return Ok(());
             }
             match key {
-                Some(k) if k == config.security.api_key => Ok(()),
+                Some(k) if constant_time_eq(k.as_bytes(), config.security.api_key.as_bytes()) => {
+                    Ok(())
+                }
                 _ => Err(warp::reject::custom(AuthError)),
             }
         })
         .untuple_one()
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+
+    let mut difference = 0u8;
+    for (left_byte, right_byte) in left.iter().zip(right.iter()) {
+        difference |= left_byte ^ right_byte;
+    }
+    difference == 0
 }
 
 async fn handle_rejection(err: Rejection) -> Result<impl Reply, Infallible> {
@@ -75,7 +89,7 @@ pub fn create_routes(
     let benchmark_route = warp::path!("benchmark" / String / u64)
         .and(warp::post())
         .and(db_filter.clone())
-        .and_then(handlers::benchmark_handler);
+        .and_then(benchmark::benchmark_handler);
 
     let config_route = warp::path!("config")
         .and(warp::get())

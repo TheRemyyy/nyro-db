@@ -5,7 +5,7 @@ graceful_shutdown_timeout = 5
 
 [security]
 enable_auth = true
-api_key = "test_production_key"
+api_key = "change-this-to-a-long-random-key"
 
 [storage]
 data_dir = "./data"

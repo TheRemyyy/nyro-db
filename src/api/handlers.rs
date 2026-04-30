@@ -1,6 +1,5 @@
 use serde_json::Value;
 use std::sync::Arc;
-use std::time::Instant;
 use warp::http::StatusCode;
 use warp::{reply, Rejection, Reply};
 
@@ -12,9 +11,12 @@ pub async fn insert_handler(
     model_name: String,
     data: Value,
     db: Arc<NyroDB>,
-) -> Result<impl Reply, warp::Rejection> {
+) -> Result<Box<dyn Reply>, warp::Rejection> {
     let limiter = db.get_concurrency_limiter();
-    let _permit = limiter.acquire().await.unwrap();
+    let _permit = limiter
+        .acquire()
+        .await
+        .map_err(|_| warp::reject::reject())?;
 
     match db.insert_raw(&model_name, data).await {
         Ok(id) => {
@@ -22,8 +24,8 @@ pub async fn insert_handler(
                 &db.get_config().logging,
                 &format!("Inserted into '{}': ID {}", model_name, id),
             );
-            Ok(reply::with_status(
-                format!("{{\"id\":{}}}", id),
+            Ok(json_status(
+                serde_json::json!({ "id": id }),
                 StatusCode::CREATED,
             ))
         }
@@ -32,10 +34,7 @@ pub async fn insert_handler(
                 &db.get_config().logging,
                 &format!("Failed to insert into '{}': {}", model_name, e),
             );
-            Ok(reply::with_status(
-                format!("{{\"error\":\"{}\"}}", e),
-                StatusCode::BAD_REQUEST,
-            ))
+            Ok(error_status(e.to_string(), StatusCode::BAD_REQUEST))
         }
     }
 }
@@ -46,7 +45,10 @@ pub async fn get_handler(
     db: Arc<NyroDB>,
 ) -> Result<Box<dyn Reply>, warp::Rejection> {
     let limiter = db.get_concurrency_limiter();
-    let _permit = limiter.acquire().await.unwrap();
+    let _permit = limiter
+        .acquire()
+        .await
+        .map_err(|_| warp::reject::reject())?;
 
     match db.get_raw(&model_name, id).await {
         Ok(Some(data)) => Ok(Box::new(reply::json(&data))),
@@ -65,33 +67,34 @@ pub async fn get_handler(
                 &db.get_config().logging,
                 &format!("Failed to get from '{}' ID {}: {}", model_name, id, e),
             );
-            Ok(Box::new(reply::with_status(
-                format!("{{\"error\":\"{}\"}}", e),
-                StatusCode::BAD_REQUEST,
-            )))
+            Ok(error_status(e.to_string(), StatusCode::BAD_REQUEST))
         }
     }
 }
 
-pub async fn query_handler(model_name: String, db: Arc<NyroDB>) -> Result<impl Reply, Rejection> {
+pub async fn query_handler(
+    model_name: String,
+    db: Arc<NyroDB>,
+) -> Result<Box<dyn Reply>, Rejection> {
     let limiter = db.get_concurrency_limiter();
-    let _permit = limiter.acquire().await.unwrap();
+    let _permit = limiter
+        .acquire()
+        .await
+        .map_err(|_| warp::reject::reject())?;
     match db.query_raw(&model_name).await {
         Ok(results) => {
             Logger::info_with_config(
                 &db.get_config().logging,
                 &format!("Queried {} items from '{}'", results.len(), model_name),
             );
-            Ok(warp::reply::json(&results))
+            Ok(Box::new(warp::reply::json(&results)))
         }
         Err(e) => {
             Logger::error_with_config(
                 &db.get_config().logging,
                 &format!("Failed to query '{}': {}", model_name, e),
             );
-            Ok(warp::reply::json(
-                &serde_json::json!({ "error": e.to_string() }),
-            ))
+            Ok(error_status(e.to_string(), StatusCode::BAD_REQUEST))
         }
     }
 }
@@ -101,9 +104,12 @@ pub async fn query_field_handler(
     field: String,
     value: String,
     db: Arc<NyroDB>,
-) -> Result<impl Reply, Rejection> {
+) -> Result<Box<dyn Reply>, Rejection> {
     let limiter = db.get_concurrency_limiter();
-    let _permit = limiter.acquire().await.unwrap();
+    let _permit = limiter
+        .acquire()
+        .await
+        .map_err(|_| warp::reject::reject())?;
     match db.query_by_field_raw(&model_name, &field, &value).await {
         Ok(results) => {
             Logger::info_with_config(
@@ -116,7 +122,7 @@ pub async fn query_field_handler(
                     value
                 ),
             );
-            Ok(warp::reply::json(&results))
+            Ok(Box::new(warp::reply::json(&results)))
         }
         Err(e) => {
             Logger::error_with_config(
@@ -126,9 +132,7 @@ pub async fn query_field_handler(
                     model_name, field, value, e
                 ),
             );
-            Ok(warp::reply::json(
-                &serde_json::json!({ "error": e.to_string() }),
-            ))
+            Ok(error_status(e.to_string(), StatusCode::BAD_REQUEST))
         }
     }
 }
@@ -151,94 +155,13 @@ pub async fn metrics_handler(db: Arc<NyroDB>) -> Result<Box<dyn Reply>, warp::Re
     Ok(Box::new(reply::json(&metrics)))
 }
 
-pub async fn benchmark_handler(
-    model_name: String,
-    operations: u64,
-    db: Arc<NyroDB>,
-) -> Result<impl Reply, warp::Rejection> {
-    let log_config = db.get_config().logging.clone();
-
-    if !db.get_config().models.contains_key(&model_name) {
-        return Ok(reply::with_status(
-            format!("{{\"error\":\"Model '{}' not found\"}}", model_name),
-            StatusCode::BAD_REQUEST,
-        ));
-    }
-
-    Logger::info_with_config(
-        &log_config,
-        &format!(
-            "Starting benchmark: {} operations on '{}'",
-            operations, model_name
-        ),
-    );
-
-    let start_time = Instant::now();
-    let mut tasks = Vec::new();
-
-    for i in 0..operations {
-        let db_clone = db.clone();
-        let model_name_clone = model_name.clone();
-        let permit = db
-            .get_concurrency_limiter()
-            .clone()
-            .acquire_owned()
-            .await
-            .unwrap();
-
-        tasks.push(tokio::spawn(async move {
-            let data = serde_json::json!({
-                "id": i,
-                "email": format!("user{}@test.com", i),
-                "hash_password": format!("hash_{}", i),
-                "created_at": 0
-            });
-            let result = db_clone.insert_raw(&model_name_clone, data).await;
-            drop(permit);
-            result
-        }));
-    }
-
-    let mut successful_inserts = 0;
-    for task in tasks {
-        if task.await.is_ok() {
-            successful_inserts += 1;
-        }
-    }
-
-    let insert_duration = start_time.elapsed();
-    let insert_ops_per_sec = if insert_duration.as_secs_f64() > 0.0 {
-        successful_inserts as f64 / insert_duration.as_secs_f64()
-    } else {
-        0.0
-    };
-
-    Logger::info_with_config(
-        &log_config,
-        &format!(
-            "Benchmark completed: {} ops in {:.2}s = {:.0} ops/sec",
-            successful_inserts,
-            insert_duration.as_secs_f64(),
-            insert_ops_per_sec
-        ),
-    );
-
-    Ok(reply::with_status(
-        serde_json::to_string(&serde_json::json!({
-            "model": model_name,
-            "ops": successful_inserts,
-            "duration_s": insert_duration.as_secs_f64(),
-            "ops_per_sec": insert_ops_per_sec
-        }))
-        .unwrap(),
-        StatusCode::OK,
-    ))
-}
-
 pub async fn config_handler(db: Arc<NyroDB>) -> Result<impl Reply, warp::Rejection> {
-    let config = db.get_config();
+    let mut config = db.get_config().clone();
+    if !config.security.api_key.is_empty() {
+        config.security.api_key = "[redacted]".to_string();
+    }
     Logger::info_with_config(&db.get_config().logging, "Configuration requested");
-    Ok(reply::json(config))
+    Ok(reply::json(&config))
 }
 
 pub async fn models_handler(db: Arc<NyroDB>) -> Result<impl Reply, warp::Rejection> {
@@ -247,4 +170,12 @@ pub async fn models_handler(db: Arc<NyroDB>) -> Result<impl Reply, warp::Rejecti
     Ok(reply::json(&serde_json::json!({
         "models": models
     })))
+}
+
+fn json_status(value: serde_json::Value, status: StatusCode) -> Box<dyn Reply> {
+    Box::new(reply::with_status(reply::json(&value), status))
+}
+
+fn error_status(message: String, status: StatusCode) -> Box<dyn Reply> {
+    json_status(serde_json::json!({ "error": message }), status)
 }

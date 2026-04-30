@@ -1,7 +1,11 @@
 use crate::utils::logger::Logger;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+
+const API_KEY_ENV_VAR: &str = "NYRODB_API_KEY";
+const DEFAULT_API_KEY_PLACEHOLDER: &str = "replace_me";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NyroConfig {
@@ -159,7 +163,7 @@ impl Default for NyroConfig {
             },
             security: SecurityConfig {
                 enable_auth: false,
-                api_key: "default_nyro_key_replace_me".to_string(),
+                api_key: String::new(),
             },
             models,
         }
@@ -170,7 +174,7 @@ impl NyroConfig {
     pub fn load() -> Result<Self> {
         if let Ok(config) = Self::load_from_file("nyrodb.toml") {
             Logger::info_with_config(&config.logging, "Loaded configuration from nyrodb.toml");
-            return Ok(config);
+            return Ok(config.with_env_overrides());
         }
 
         for path in &["config/nyrodb.toml", "/etc/nyrodb/nyrodb.toml"] {
@@ -179,19 +183,26 @@ impl NyroConfig {
                     &config.logging,
                     &format!("Loaded configuration from {}", path),
                 );
-                return Ok(config);
+                return Ok(config.with_env_overrides());
             }
         }
 
         let config = Self::default();
         Logger::info_with_config(&config.logging, "Using default configuration");
-        Ok(config)
+        Ok(config.with_env_overrides())
     }
 
     fn load_from_file(path: &str) -> Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: Self = toml::from_str(&content)?;
         Ok(config)
+    }
+
+    fn with_env_overrides(mut self) -> Self {
+        if let Ok(api_key) = std::env::var(API_KEY_ENV_VAR) {
+            self.security.api_key = api_key;
+        }
+        self
     }
 
     pub fn save_default_config() -> Result<()> {
@@ -209,6 +220,14 @@ impl NyroConfig {
         if self.server.host.is_empty() {
             return Err(anyhow::anyhow!("Server host cannot be empty"));
         }
+        let bind_addr: SocketAddr = format!("{}:{}", self.server.host, self.server.port)
+            .parse()
+            .map_err(|error| anyhow::anyhow!("Invalid server bind address: {}", error))?;
+        if !self.security.enable_auth && !bind_addr.ip().is_loopback() {
+            return Err(anyhow::anyhow!(
+                "Authentication must be enabled when binding to a non-loopback address"
+            ));
+        }
         if self.storage.buffer_size == 0 {
             return Err(anyhow::anyhow!("Buffer size cannot be 0"));
         }
@@ -220,6 +239,18 @@ impl NyroConfig {
         }
         if self.performance.max_concurrent_ops == 0 {
             return Err(anyhow::anyhow!("Max concurrent ops cannot be 0"));
+        }
+        if self.security.enable_auth {
+            if self.security.api_key.trim().is_empty() {
+                return Err(anyhow::anyhow!(
+                    "API authentication is enabled but no API key is configured"
+                ));
+            }
+            if self.security.api_key == DEFAULT_API_KEY_PLACEHOLDER {
+                return Err(anyhow::anyhow!(
+                    "Default API key placeholder must be replaced before enabling auth"
+                ));
+            }
         }
         match self.logging.level.as_str() {
             "info" | "warn" | "error" | "shutdown" => {}
@@ -238,11 +269,29 @@ impl NyroConfig {
                     model_name
                 ));
             }
-            if !schema.fields.iter().any(|f| f.name == "id") {
+            let mut field_names = HashSet::new();
+            if !schema.fields.iter().any(|field| field.name == "id") {
                 return Err(anyhow::anyhow!(
                     "Model '{}' must have an 'id' field",
                     model_name
                 ));
+            }
+            for field in &schema.fields {
+                if !field_names.insert(&field.name) {
+                    return Err(anyhow::anyhow!(
+                        "Model '{}' has duplicate field '{}'",
+                        model_name,
+                        field.name
+                    ));
+                }
+                if !crate::database::validation::validate_supported_field_type(&field.field_type) {
+                    return Err(anyhow::anyhow!(
+                        "Model '{}' field '{}' has unsupported type '{}'",
+                        model_name,
+                        field.name,
+                        field.field_type
+                    ));
+                }
             }
         }
         Ok(())
