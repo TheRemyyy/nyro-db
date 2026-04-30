@@ -16,6 +16,8 @@ const CONCURRENCY: usize = 1_024;
 const READ_CONCURRENCY: usize = 256;
 const BATCH_SIZE: usize = 1_024;
 const BATCH_TIMEOUT_MS: u64 = 100;
+const STORAGE_MODE: &str = "buffered_throughput";
+const STORAGE_SYNC_INTERVAL_MS: u64 = 60_000;
 
 #[derive(Debug, Serialize)]
 struct IterationReport {
@@ -44,6 +46,8 @@ struct BenchmarkReport {
     read_concurrency: usize,
     batch_size: usize,
     batch_timeout_ms: u64,
+    storage_mode: &'static str,
+    storage_sync_interval_ms: u64,
     measured_insert_ops_per_sec: Stats,
     measured_get_ops_per_sec: Stats,
     measured_bulk_insert_ops_per_sec: Stats,
@@ -84,6 +88,8 @@ async fn main() -> Result<()> {
         read_concurrency: READ_CONCURRENCY,
         batch_size: BATCH_SIZE,
         batch_timeout_ms: BATCH_TIMEOUT_MS,
+        storage_mode: STORAGE_MODE,
+        storage_sync_interval_ms: STORAGE_SYNC_INTERVAL_MS,
         measured_insert_ops_per_sec: stats(&insert_rates),
         measured_get_ops_per_sec: stats(&get_rates),
         measured_bulk_insert_ops_per_sec: stats(&bulk_insert_rates),
@@ -262,7 +268,7 @@ fn partition_ranges(total: u64, partition_count: usize) -> Vec<(u64, u64)> {
 fn benchmark_config(data_dir: &str) -> NyroConfig {
     let mut config = NyroConfig::default();
     config.storage.data_dir = data_dir.to_string();
-    config.storage.sync_interval = 60_000;
+    config.storage.sync_interval = STORAGE_SYNC_INTERVAL_MS;
     config.storage.enable_mmap = false;
     config.performance.batch_size = BATCH_SIZE;
     config.performance.batch_timeout = BATCH_TIMEOUT_MS;
